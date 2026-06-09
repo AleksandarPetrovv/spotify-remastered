@@ -1,4 +1,6 @@
 Stop-Process -Name Spotify -Force -ErrorAction SilentlyContinue
+Stop-Process -Name SpotifyWebHelper -Force -ErrorAction SilentlyContinue
+Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $tempZip = "$env:TEMP\spotify-remastered.zip"
 $tempExtract = "$env:TEMP\spotify-remastered"
@@ -6,7 +8,7 @@ $tempExtract = "$env:TEMP\spotify-remastered"
 Invoke-WebRequest "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/main.zip" -OutFile $tempZip
 
 if (Test-Path $tempExtract) {
-Remove-Item -Recurse -Force $tempExtract
+Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
 }
 
 Expand-Archive $tempZip -DestinationPath $tempExtract -Force
@@ -18,17 +20,12 @@ Invoke-WebRequest "https://raw.githubusercontent.com/spicetify/cli/main/install.
 Start-Sleep 2
 }
 
-$theme = "$env:APPDATA\spicetify\Themes\Hazy"
-$app = "$env:APPDATA\spicetify\CustomApps\lyrics-plus"
+Remove-Item -Recurse -Force "$env:APPDATA\spicetify\Themes\Hazy" -ErrorAction SilentlyContinue
+Copy-Item -Recurse (Join-Path $repo "hazy") "$env:APPDATA\spicetify\Themes\Hazy"
 
-Remove-Item -Recurse -Force $theme -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $app -ErrorAction SilentlyContinue
-
-New-Item -ItemType Directory -Path $theme -Force | Out-Null
-New-Item -ItemType Directory -Path $app -Force | Out-Null
-
-Copy-Item -Recurse (Join-Path $repo "lyrics-plus") $app
-Copy-Item -Force (Join-Path $repo "hazy\user.css") (Join-Path $theme "user.css")
+Remove-Item -Recurse -Force "$env:APPDATA\spicetify\CustomApps\lyrics-plus" -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Path "$env:APPDATA\spicetify\CustomApps\lyrics-plus" -Force | Out-Null
+Copy-Item -Recurse (Join-Path $repo "lyrics-plus") "$env:APPDATA\spicetify\CustomApps\lyrics-plus"
 
 spicetify config inject_css 1
 spicetify config replace_colors 1
@@ -43,7 +40,7 @@ spicetify apply
 $taskName = "SpicetifyRepairAgent"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -Command spicetify backup apply; spicetify apply"
 $trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -RunLevel Highest -Force
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force
 
 Remove-Item $tempZip -Force
 Remove-Item -Recurse -Force $tempExtract

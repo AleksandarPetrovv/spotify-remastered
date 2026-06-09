@@ -1,4 +1,3 @@
-powershell
 Write-Host ""
 Write-Host "=== spotify remastered ===" -ForegroundColor Cyan
 Write-Host ""

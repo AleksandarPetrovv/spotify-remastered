@@ -70,6 +70,8 @@ if ($spice) {
 }
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 spicetify apply
+Start-Sleep -Seconds 5
+Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 '@ | Set-Content $helperScript -Encoding UTF8
 if (-not (Test-Path $shortcutPath)) {
     $ws = New-Object -ComObject WScript.Shell

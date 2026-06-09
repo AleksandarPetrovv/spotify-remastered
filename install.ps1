@@ -11,7 +11,7 @@ $extractPath = Join-Path $tempPath "spotify-remastered"
 Invoke-WebRequest -UseBasicParsing "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/main.zip" -OutFile $repoZip
 
 if (Test-Path $extractPath) {
-    Remove-Item -Recurse -Force $extractPath
+Remove-Item -Recurse -Force $extractPath
 }
 
 Expand-Archive -Path $repoZip -DestinationPath $extractPath -Force
@@ -19,24 +19,25 @@ Expand-Archive -Path $repoZip -DestinationPath $extractPath -Force
 $repoRoot = Join-Path $extractPath "spotify-remastered-main"
 
 if (Get-Command spicetify -ErrorAction SilentlyContinue) {
-    Write-Host "spicetify is already installed, skipping" -ForegroundColor Green
+Write-Host "spicetify is already installed, skipping" -ForegroundColor Green
 } else {
-    Write-Host "spicetify not found, installing it now..." -ForegroundColor Yellow
+Write-Host "spicetify not found, installing it now..." -ForegroundColor Yellow
 
-    Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
+Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
 
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
 
-    if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
-        Write-Host "couldn't find spicetify after install. close this window, open a new powershell, and run the command again." -ForegroundColor Red
+if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
+    Write-Host "couldn't find spicetify after install. close this window, open a new powershell, and run the command again." -ForegroundColor Red
 
-        Remove-Item -Force $repoZip -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
+    Remove-Item -Force $repoZip -ErrorAction SilentlyContinue
+    Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
 
-        exit 1
-    }
+    exit 1
+}
 
-    Write-Host "spicetify installed!" -ForegroundColor Green
+Write-Host "spicetify installed!" -ForegroundColor Green
+
 }
 
 $hazyPath = "$env:APPDATA\spicetify\Themes\Hazy"
@@ -52,7 +53,7 @@ Write-Host "installing modified lyrics plus..." -ForegroundColor Yellow
 $customAppsPath = "$env:LOCALAPPDATA\spicetify\CustomApps\lyrics-plus"
 
 if (Test-Path $customAppsPath) {
-    Remove-Item -Recurse -Force $customAppsPath
+Remove-Item -Recurse -Force $customAppsPath
 }
 
 Copy-Item -Recurse (Join-Path $repoRoot "lyrics-plus") $customAppsPath

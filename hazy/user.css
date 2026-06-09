@@ -1,0 +1,15 @@
+@import url("https://cdn.jsdelivr.net/gh/astromations/hazy/app.css");
+
+.lyrics-lyricsContainer-SyncedLyrics .lyrics-lyricsContainer-LyricsLine {
+    transition-duration: 1.2s !important;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1) !important;
+    transition-property: transform, color, opacity, text-shadow !important;
+}
+
+.lyrics-lyricsContainer-SyncedLyrics .lyrics-lyricsContainer-LyricsLine-active {
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.6) !important;
+}
+
+.lyrics-lyricsContainer-Provider {
+    display: none !important;
+}

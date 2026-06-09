@@ -108,13 +108,6 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
     const [position, setPosition] = useState(0);
     const activeLineEle = useRef();
     const lyricContainerEle = useRef();
-    const handleSyncedWheel = useCallback((event) => {
-        // Synced page is transform-driven (not scroll container).
-        // Prevent wheel from bubbling to Spotify root and scrolling the main page.
-        if (event.ctrlKey) return;
-        event.preventDefault();
-        event.stopPropagation();
-    }, []);
 
     useTrackPosition(() => {
         const newPos = Spicetify.Player.getProgress();
@@ -262,13 +255,11 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
     if (activeLineEle.current) {
         offset += -(activeLineEle.current.offsetTop + activeLineEle.current.clientHeight / 2);
     }
-
     return react.createElement(
         "div",
         {
             className: "lyrics-lyricsContainer-SyncedLyricsPage",
             ref: lyricContainerEle,
-            onWheel: handleSyncedWheel,
         },
         react.createElement(
             "div",
@@ -399,6 +390,7 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 
 const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKara }) => {
     const [position, setPosition] = useState(0);
+    const programmaticScroll = useRef(false);
     const activeLineRef = useRef(null);
     const pageRef = useRef(null);
 
@@ -544,8 +536,16 @@ useEffect(() => {
 			inline: "nearest",
 		});
 		initialScroll.current = false;
+	} else {
+		programmaticScroll.current = true;
+		activeLineRef.current.scrollIntoView({
+			behavior: "smooth",
+			block: "center",
+			inline: "nearest",
+		});
+		setTimeout(() => { programmaticScroll.current = false; }, 300);
 	}
-}, [lyricsId]);
+}, [lyricsId, activeLineIndex]);
 
     return react.createElement(
         "div",

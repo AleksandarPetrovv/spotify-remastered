@@ -1142,12 +1142,14 @@ div.lyrics-tabBar-headerItemLink {
   pointer-events: auto;
 }
 
-.lyrics-config-button-container > *:not(:last-child) {
+.lyrics-config-button-container > *:not(:last-child):not(.lyrics-romanize-wrap) {
   display: none !important;
 }
 
 .lyrics-config-button-container > :last-child > .lyrics-config-button,
-.lyrics-config-button-container > :last-child.lyrics-config-button {
+.lyrics-config-button-container > :last-child.lyrics-config-button,
+.lyrics-config-button-container > .lyrics-romanize-wrap > .lyrics-config-button,
+.lyrics-config-button-container > .lyrics-romanize-wrap.lyrics-config-button {
   background-color: transparent;
   border-radius: 50%;
   padding: 8px;
@@ -1158,7 +1160,9 @@ div.lyrics-tabBar-headerItemLink {
 }
 
 .lyrics-config-button-container > :last-child > .lyrics-config-button:hover,
-.lyrics-config-button-container > :last-child.lyrics-config-button:hover {
+.lyrics-config-button-container > :last-child.lyrics-config-button:hover,
+.lyrics-config-button-container > .lyrics-romanize-wrap > .lyrics-config-button:hover,
+.lyrics-config-button-container > .lyrics-romanize-wrap.lyrics-config-button:hover {
   color: #fff !important;
   transform: none;
   box-shadow: none;

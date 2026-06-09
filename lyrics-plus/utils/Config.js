@@ -1,5 +1,3 @@
-// Config.js - Configuration and Settings
-
 const APP_NAME = "lyrics-plus";
 
 const ConfigUtils = {
@@ -34,7 +32,6 @@ const ConfigUtils = {
         const stringValue = String(value);
         let success = false;
 
-        // Try Spicetify LocalStorage first
         try {
             Spicetify?.LocalStorage?.set(key, stringValue);
             success = true;
@@ -42,7 +39,6 @@ const ConfigUtils = {
             console.warn(`Failed to write to Spicetify LocalStorage '${key}':`, error);
         }
 
-        // Fallback to regular localStorage
         try {
             localStorage.setItem(key, stringValue);
             success = true;
@@ -56,7 +52,6 @@ const ConfigUtils = {
     }
 };
 
-// Debug Logger - only logs when debug-mode is enabled
 const DebugLogger = {
     log(...args) {
         if (CONFIG?.visual?.["debug-mode"]) {
@@ -85,23 +80,20 @@ const DebugLogger = {
     }
 };
 
-// UpdateChecker has been moved to services/UpdateService.js
-
-const KARAOKE = 0; // deprecated
+const KARAOKE = 0;
 const SYNCED = 1;
 const UNSYNCED = 2;
 const GENIUS = 3;
 
-//Configuration & Settings
 const CONFIG = {
     visual: {
         "debug-mode": ConfigUtils.getPersisted("lyrics-plus:visual:debug-mode") === "true",
         "ui-language": ConfigUtils.getPersisted("lyrics-plus:visual:ui-language") || "en",
-        "playbar-button": ConfigUtils.getPersisted("lyrics-plus:visual:playbar-button") === "true",
+        "playbar-button": ConfigUtils.getPersisted("lyrics-plus:visual:playbar-button") !== "false",
         colorful: ConfigUtils.getPersisted("lyrics-plus:visual:colorful") === "true",
         "gradient-background": ConfigUtils.getPersisted("lyrics-plus:visual:gradient-background") === "true",
         "transparent-background": ConfigUtils.getPersisted("lyrics-plus:visual:transparent-background") !== "false",
-        "background-brightness": ConfigUtils.getPersisted("lyrics-plus:visual:background-brightness") || "80",
+        "background-brightness": ConfigUtils.getPersisted("lyrics-plus:visual:background-brightness") || "50",
         noise: ConfigUtils.getPersisted("lyrics-plus:visual:noise") === "true",
         "background-color": ConfigUtils.getPersisted("lyrics-plus:visual:background-color") || "#000000",
         "active-color": ConfigUtils.getPersisted("lyrics-plus:visual:active-color") || "var(--spice-text)",
@@ -117,7 +109,7 @@ const CONFIG = {
         alignment: ConfigUtils.getPersisted("lyrics-plus:visual:alignment") || "center",
         "lines-before": ConfigUtils.getPersisted("lyrics-plus:visual:lines-before") || "0",
         "lines-after": ConfigUtils.getPersisted("lyrics-plus:visual:lines-after") || "2",
-        "font-size": ConfigUtils.getPersisted("lyrics-plus:visual:font-size") || "32",
+        "font-size": ConfigUtils.getPersisted("lyrics-plus:visual:font-size") || "60",
         "lyric-position": Number(ConfigUtils.getPersisted("lyrics-plus:visual:lyric-position")) || 50,
         "translate:translated-lyrics-source": ConfigUtils.getPersisted("lyrics-plus:visual:translate:translated-lyrics-source") || "geminiVi",
         "translate:display-mode": ConfigUtils.getPersisted("lyrics-plus:visual:translate:display-mode") || "replace",
@@ -144,15 +136,11 @@ const CONFIG = {
             return val;
         })(),
         "gemini:response-mode": ConfigUtils.getPersisted("lyrics-plus:visual:gemini:response-mode") || "json_schema",
-        // Reasoning effort: "off" | "low" | "medium" | "high"
-        // Migration from legacy boolean `gemini:disable-thinking`:
-        //   true  → "off"       (preserve explicit opt-out)
-        //   false → "low"       (implicit default; low is new sweet spot for lyric translation)
         "gemini:reasoning-effort": ConfigUtils.getPersisted("lyrics-plus:visual:gemini:reasoning-effort")
             || (ConfigUtils.getPersisted("lyrics-plus:visual:gemini:disable-thinking") === "true" ? "off" : "low"),
         translate: ConfigUtils.getPersisted("lyrics-plus:visual:translate") === "true",
-        "ja-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:ja-detect-threshold") || "40",
-        "hans-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:hans-detect-threshold") || "40",
+        "ja-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:ja-detect-threshold") || "1",
+        "hans-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:hans-detect-threshold") || "1",
         "musixmatch-translation-language": ConfigUtils.getPersisted("lyrics-plus:visual:musixmatch-translation-language") || "none",
         "fade-blur": ConfigUtils.getPersisted("lyrics-plus:visual:fade-blur") === "true",
         "unsynced-auto-scroll": ConfigUtils.getPersisted("lyrics-plus:visual:unsynced-auto-scroll") !== "false",
@@ -173,7 +161,7 @@ const CONFIG = {
     },
     providers: {
         lrclib: {
-            on: ConfigUtils.get("lyrics-plus:provider:lrclib:on"),
+            on: ConfigUtils.get("lyrics-plus:provider:lrclib:on", false),
             desc: "Lyrics sourced from lrclib.net. Supports both synced and unsynced lyrics. LRCLIB is a free and open-source lyrics provider.",
             modes: [SYNCED, UNSYNCED],
         },
@@ -194,7 +182,7 @@ const CONFIG = {
             modes: [SYNCED, UNSYNCED],
         },
         netease: {
-            on: ConfigUtils.get("lyrics-plus:provider:netease:on"),
+            on: ConfigUtils.get("lyrics-plus:provider:netease:on", false),
             desc: "Lyrics sourced from NetEase Cloud Music (网易云音乐). Excellent coverage for indie JP/KR/CN artists. Optional: paste a session Cookie from music.163.com below for better results.",
             token: localStorage.getItem("lyrics-plus:provider:netease:token") || "",
             modes: [SYNCED, UNSYNCED],
@@ -208,12 +196,10 @@ const CONFIG = {
 CONFIG.visual["video-background-blur"] = Number.parseInt(CONFIG.visual["video-background-blur"]);
 CONFIG.visual["video-background-dim"] = Number.parseInt(CONFIG.visual["video-background-dim"]);
 
-
 try {
     CONFIG.providersOrder = JSON.parse(CONFIG.providersOrder);
     if (!Array.isArray(CONFIG.providersOrder)) throw "";
 
-    // Migration for existing users: Ensure netease is at 3rd position and turned ON
     if (!CONFIG.providersOrder.includes("netease")) {
         CONFIG.providersOrder.splice(2, 0, "netease");
         CONFIG.providers.netease.on = true;
@@ -221,20 +207,25 @@ try {
         localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
     }
 
-    // Catch any other missing providers
     const missing = Object.keys(CONFIG.providers).filter(p => !CONFIG.providersOrder.includes(p));
     if (missing.length > 0) {
         CONFIG.providersOrder.push(...missing);
         localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
     }
 } catch {
-    // Default order for new users
-    CONFIG.providersOrder = ["spotify", "musixmatch", "netease", "lrclib", "local"];
-    
-    // Ensure all providers are turned ON by default for new users
+    CONFIG.providersOrder = ["spotify", "local", "musixmatch", "netease", "lrclib"];
+
+    const defaultProviderState = {
+        spotify: true,
+        local: true,
+        musixmatch: true,
+        netease: false,
+        lrclib: false,
+    };
     Object.keys(CONFIG.providers).forEach(p => {
-        CONFIG.providers[p].on = true;
-        localStorage.setItem(`lyrics-plus:provider:${p}:on`, "true");
+        const on = defaultProviderState[p] ?? false;
+        CONFIG.providers[p].on = on;
+        localStorage.setItem(`lyrics-plus:provider:${p}:on`, String(on));
     });
     localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
 }
@@ -256,11 +247,10 @@ const emptyState = {
     genius: null,
     genius2: null,
     currentLyrics: null,
-    visualizerGranularity: "medium", // low, medium, high
+    visualizerGranularity: "medium",
     preTranslated: false,
 };
 
-// Expose to global scope for other modules
 window.CONFIG = CONFIG;
 window.CACHE = CACHE;
 window.emptyState = emptyState;

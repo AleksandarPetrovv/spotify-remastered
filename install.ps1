@@ -76,7 +76,8 @@ Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Fo
 if (-not (Test-Path $shortcutPath)) {
     $ws = New-Object -ComObject WScript.Shell
     $s = $ws.CreateShortcut($shortcutPath)
-    $s.TargetPath = (Get-Command powershell.exe).Source
+    $pwsh = (Get-Command pwsh.exe -ErrorAction SilentlyContinue).Source ?? (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source ?? "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $s.TargetPath = $pwsh
     $s.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helperScript`""
     $s.WorkingDirectory = $env:USERPROFILE
     $s.Description = "Re-applies Spicetify Hazy after Spotify updates revert it"

@@ -37,10 +37,20 @@ spicetify config custom_apps lyrics-plus
 spicetify backup apply
 spicetify apply
 
+Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep 3
+
+spicetify restart
+Start-Sleep 4
+
 $taskName = "SpicetifyRepairAgent"
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -Command spicetify backup apply; spicetify apply"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -Command `"& { spicetify backup apply; spicetify apply }`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Force
+$principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
+if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force
 
 Remove-Item $tempZip -Force
-Remove-Item -Recurse -Force $tempExtract
+Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue

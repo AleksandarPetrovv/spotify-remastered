@@ -1,70 +1,49 @@
-Write-Host ""
-Write-Host "=== spotify remastered ===" -ForegroundColor Cyan
-Write-Host ""
+Stop-Process -Name Spotify -Force -ErrorAction SilentlyContinue
 
-Write-Host "downloading files..." -ForegroundColor Yellow
+$tempZip = "$env:TEMP\spotify-remastered.zip"
+$tempExtract = "$env:TEMP\spotify-remastered"
 
-$tempPath = [System.IO.Path]::GetTempPath()
-$repoZip = Join-Path $tempPath "spotify-remastered.zip"
-$extractPath = Join-Path $tempPath "spotify-remastered"
+Invoke-WebRequest "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/main.zip" -OutFile $tempZip
 
-Invoke-WebRequest -UseBasicParsing "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/main.zip" -OutFile $repoZip
-
-if (Test-Path $extractPath) {
-Remove-Item -Recurse -Force $extractPath
+if (Test-Path $tempExtract) {
+Remove-Item -Recurse -Force $tempExtract
 }
 
-Expand-Archive -Path $repoZip -DestinationPath $extractPath -Force
+Expand-Archive $tempZip -DestinationPath $tempExtract -Force
 
-$repoRoot = Join-Path $extractPath "spotify-remastered-main"
-
-if (Get-Command spicetify -ErrorAction SilentlyContinue) {
-Write-Host "spicetify is already installed, skipping" -ForegroundColor Green
-} else {
-Write-Host "spicetify not found, installing it now..." -ForegroundColor Yellow
-
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
-
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "User") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "Machine")
+$repo = Join-Path $tempExtract "spotify-remastered-main"
 
 if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
-    Write-Host "couldn't find spicetify after install. close this window, open a new powershell, and run the command again." -ForegroundColor Red
-
-    Remove-Item -Force $repoZip -ErrorAction SilentlyContinue
-    Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
-
-    exit 1
+Invoke-WebRequest "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
+Start-Sleep 2
 }
 
-Write-Host "spicetify installed!" -ForegroundColor Green
+$theme = "$env:APPDATA\spicetify\Themes\Hazy"
+$app = "$env:APPDATA\spicetify\CustomApps\lyrics-plus"
 
-}
+Remove-Item -Recurse -Force $theme -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $app -ErrorAction SilentlyContinue
 
-$hazyPath = "$env:APPDATA\spicetify\Themes\Hazy"
+New-Item -ItemType Directory -Path $theme -Force | Out-Null
+New-Item -ItemType Directory -Path $app -Force | Out-Null
 
-Write-Host "installing hazy theme..." -ForegroundColor Yellow
-Invoke-WebRequest -UseBasicParsing "https://raw.githubusercontent.com/Astromations/Hazy/main/install.ps1" | Invoke-Expression
-Write-Host "hazy theme installed!" -ForegroundColor Green
+Copy-Item -Recurse (Join-Path $repo "lyrics-plus") $app
+Copy-Item -Force (Join-Path $repo "hazy\user.css") (Join-Path $theme "user.css")
 
-Write-Host "applying custom hazy css..." -ForegroundColor Yellow
-Copy-Item -Force (Join-Path $repoRoot "hazy\user.css") (Join-Path $hazyPath "user.css")
-
-Write-Host "installing modified lyrics plus..." -ForegroundColor Yellow
-$customAppsPath = "$env:LOCALAPPDATA\spicetify\CustomApps\lyrics-plus"
-
-if (Test-Path $customAppsPath) {
-Remove-Item -Recurse -Force $customAppsPath
-}
-
-Copy-Item -Recurse (Join-Path $repoRoot "lyrics-plus") $customAppsPath
-
+spicetify config inject_css 1
+spicetify config replace_colors 1
+spicetify config overwrite_assets 1
+spicetify config inject_theme_js 1
+spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
 
-Remove-Item -Force $repoZip -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $extractPath -ErrorAction SilentlyContinue
-
-Write-Host "applying everything..." -ForegroundColor Yellow
+spicetify backup apply
 spicetify apply
 
-Write-Host ""
-Write-Host "all done, enjoy :)" -ForegroundColor Green
+$taskName = "SpicetifyRepairAgent"
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-WindowStyle Hidden -Command spicetify backup apply; spicetify apply"
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -RunLevel Highest -Force
+
+Remove-Item $tempZip -Force
+Remove-Item -Recurse -Force $tempExtract

@@ -13,10 +13,12 @@ function Get-SpicetifyConfigDir {
 
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
+$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
+$marker = Join-Path $customDir "spicetify-was-not-installed-before"
+$fullWipe = Test-Path $marker
+
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
-$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
-
 Remove-Item $shortcutPath -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $customDir -ErrorAction SilentlyContinue
 
@@ -28,21 +30,23 @@ if (Get-Command spicetify -ErrorAction SilentlyContinue) {
         Remove-Item -Recurse -Force (Join-Path $cfg "CustomApps\lyrics-plus") -ErrorAction SilentlyContinue
     }
     spicetify restore backup
+
+    if ($fullWipe) {
+        $spicetifyPaths = @(
+            (Join-Path $env:LOCALAPPDATA 'spicetify'),
+            (Join-Path $env:APPDATA 'spicetify'),
+            (Join-Path $env:LOCALAPPDATA 'Programs\spicetify')
+        )
+        foreach ($p in $spicetifyPaths) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
+
+        $spiceBin = (Get-Command spicetify -ErrorAction SilentlyContinue).Source
+        if ($spiceBin) { Remove-Item -Force $spiceBin -ErrorAction SilentlyContinue }
+
+        $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
+        $cleaned = ($userPath -split ";") | Where-Object { $_ -notmatch "spicetify" } | Where-Object { $_ -ne "" }
+        [System.Environment]::SetEnvironmentVariable("PATH", ($cleaned -join ";"), "User")
+    }
 }
-
-$spicetifyPaths = @(
-    (Join-Path $env:LOCALAPPDATA 'spicetify'),
-    (Join-Path $env:APPDATA 'spicetify'),
-    (Join-Path $env:LOCALAPPDATA 'Programs\spicetify')
-)
-foreach ($p in $spicetifyPaths) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
-
-$spiceBin = (Get-Command spicetify -ErrorAction SilentlyContinue).Source
-if ($spiceBin) { Remove-Item -Force $spiceBin -ErrorAction SilentlyContinue }
-
-$userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-$cleaned = ($userPath -split ";") | Where-Object { $_ -notmatch "spicetify" } | Where-Object { $_ -ne "" }
-[System.Environment]::SetEnvironmentVariable("PATH", ($cleaned -join ";"), "User")
 
 Start-Process "spotify"
 

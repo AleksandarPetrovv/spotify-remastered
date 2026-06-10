@@ -32,6 +32,9 @@ if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
     powershell -ExecutionPolicy Bypass -File $spiceInstaller
     Start-Sleep 2
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
+    $marker = Join-Path $env:LOCALAPPDATA "spotify-remastered\spicetify-was-not-installed-before"
+    if (-not (Test-Path (Split-Path $marker))) { New-Item -ItemType Directory -Path (Split-Path $marker) | Out-Null }
+    "this file means spicetify wasnt on your pc before you ran the install script. the uninstall script checks for this to know whether to fully remove spicetify or just remove the theme and custom app" | Set-Content $marker -Encoding UTF8
 }
 
 spicetify | Out-Null

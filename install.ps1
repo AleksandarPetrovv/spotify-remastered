@@ -38,9 +38,9 @@ if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
     powershell -ExecutionPolicy Bypass -File $spiceInstaller
     Start-Sleep 2
     $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
-    $marker = Join-Path $env:LOCALAPPDATA "spotify-remastered\spicetify-was-not-installed-before"
-    if (-not (Test-Path (Split-Path $marker))) { New-Item -ItemType Directory -Path (Split-Path $marker) | Out-Null }
-    "this file means spicetify wasnt on your pc before you ran the install script. the uninstall script checks for this to know whether to fully remove spicetify or just remove the theme and custom app" | Set-Content $marker -Encoding UTF8
+    $spicetifyExistedBefore = $false
+} else {
+    $spicetifyExistedBefore = $true
 }
 
 spicetify | Out-Null
@@ -57,6 +57,32 @@ Copy-Item -Recurse (Join-Path $repo "hazy") $hazyDest
 Remove-Item -Recurse -Force $lpDest -ErrorAction SilentlyContinue
 Copy-Item -Recurse (Join-Path $repo "lyrics-plus") $lpDest
 
+$prevTheme = (spicetify config current_theme 2>$null)
+if ($prevTheme) { $prevTheme = $prevTheme.Trim() }
+$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
+if (-not (Test-Path $customDir)) { New-Item -ItemType Directory -Path $customDir | Out-Null }
+$prevThemeFile = Join-Path $customDir "prev-theme.txt"
+if ($prevTheme -and $prevTheme -ne "Hazy" -and -not (Test-Path $prevThemeFile)) { Set-Content $prevThemeFile -Value $prevTheme -Encoding UTF8 }
+
+@"
+spicetify-existed-before=$spicetifyExistedBefore
+
+this file tells the uninstall script whether spicetify was already on your pc before you installed spotify remastered.
+if the value above is false, the uninstall script will fully remove spicetify from your system.
+if the value above is true, the uninstall script will only remove the hazy theme and lyrics-plus custom app, keeping your spicetify installation intact.
+"@ | Set-Content (Join-Path $customDir "spicetify-status.txt") -Encoding UTF8
+
+@"
+this folder is used by spotify remastered. please do not delete it or any of its files while spotify remastered is installed.
+
+here is what each file does:
+
+- spotify-remastered-updater.ps1: runs on startup to keep spicetify applied after spotify updates itself.
+- spicetify-status.txt: stores whether spicetify was already on your pc before you installed spotify remastered. the uninstall script reads this to know whether to fully remove spicetify or just remove the theme and custom app.
+- prev-theme.txt: if this file exists it stores the name of your previous spicetify theme so it can be restored when you uninstall spotify remastered.
+- about-this-folder.txt: this file.
+"@ | Set-Content (Join-Path $customDir "about-this-folder.txt") -Encoding UTF8
+
 spicetify config inject_css 1
 spicetify config replace_colors 1
 spicetify config overwrite_assets 1
@@ -67,8 +93,6 @@ spicetify backup apply
 spicetify apply
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
-if (-not (Test-Path $customDir)) { New-Item -ItemType Directory -Path $customDir | Out-Null }
 $helperScript = Join-Path $customDir "spotify-remastered-updater.ps1"
 $shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 

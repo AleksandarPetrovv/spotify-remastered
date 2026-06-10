@@ -12,6 +12,7 @@ function Get-SpicetifyConfigDir {
 }
 
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+$killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
 
 $tempZip = "$env:TEMP\spotify-remastered.zip"
 $tempExtract = "$env:TEMP\spotify-remastered"
@@ -64,9 +65,6 @@ spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
 spicetify backup apply
 spicetify apply
-Start-Sleep 4
-spicetify restart
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
@@ -117,8 +115,9 @@ Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
 
 spicetify apply
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-spicetify restart
+Stop-Job $killJob -ErrorAction SilentlyContinue
+Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+Start-Process "$env:APPDATA\Spotify\Spotify.exe"
 
 Start-Sleep -Seconds 3
 exit

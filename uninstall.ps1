@@ -29,6 +29,10 @@ if (Get-Command spicetify -ErrorAction SilentlyContinue) {
         Remove-Item -Recurse -Force (Join-Path $cfg "Themes\Hazy") -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force (Join-Path $cfg "CustomApps\lyrics-plus") -ErrorAction SilentlyContinue
     }
+    spicetify config current_theme " "
+    spicetify config inject_theme_js 0
+    spicetify config custom_apps lyrics-plus-
+    spicetify apply
     spicetify restore backup
 
     if ($fullWipe) {

@@ -3409,8 +3409,6 @@ class LyricsContainer extends react.Component {
       return Array.isArray(original) ? original : [];
     };
 
-    console.log("[LP-DEBUG] render:", { mode, synced: !!this.state.synced, unsynced: !!this.state.unsynced, isLoading: this.state.isLoading, uri: this.state.uri, currentLyrics: this.state.currentLyrics?.length, isPaused: Spicetify.Player?.data?.is_paused });
-
     if (mode !== -1) {
       if (mode === SYNCED && this.state.synced) {
         activeItem = react.createElement(

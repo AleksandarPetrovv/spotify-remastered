@@ -1,19 +1,12 @@
 function Get-SpicetifyConfigDir {
-    if ($env:SPICETIFY_CONFIG -and (Test-Path $env:SPICETIFY_CONFIG)) {
-        return $env:SPICETIFY_CONFIG
-    }
+    if ($env:SPICETIFY_CONFIG -and (Test-Path $env:SPICETIFY_CONFIG)) { return $env:SPICETIFY_CONFIG }
     try {
         $p = (& spicetify path userdata 2>$null | Select-Object -Last 1)
         if ($p) { $p = $p.Trim() }
         if ($p -and (Test-Path $p)) { return $p }
     } catch { }
-    $candidates = @(
-        (Join-Path $env:APPDATA 'spicetify'),
-        (Join-Path $env:LOCALAPPDATA 'spicetify')
-    )
-    foreach ($c in $candidates) {
-        if (Test-Path (Join-Path $c 'config-xpui.ini')) { return $c }
-    }
+    $candidates = @( (Join-Path $env:APPDATA 'spicetify'), (Join-Path $env:LOCALAPPDATA 'spicetify') )
+    foreach ($c in $candidates) { if (Test-Path (Join-Path $c 'config-xpui.ini')) { return $c } }
     foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
     throw "Could not locate Spicetify config directory."
 }
@@ -57,9 +50,14 @@ Start-Sleep 4
 spicetify restart
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$helperScript = "$env:APPDATA\spicetify-hazy-reapply.ps1"
-$shortcutPath = Join-Path $startupDir "Spicetify Hazy - Auto Reapply.lnk"
-@'
+$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
+if (-not (Test-Path $customDir)) { New-Item -ItemType Directory -Path $customDir | Out-Null }
+$helperScript = Join-Path $customDir "spotify-remastered-updater.ps1"
+$shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
+
+$launchOnBoot = Read-Host "Do you want Spotify to launch on boot? (y/n)"
+
+$helperScriptContent = @'
 Start-Sleep -Seconds 10
 $spice = (Get-Command spicetify -ErrorAction SilentlyContinue).Source
 if ($spice) {
@@ -71,8 +69,14 @@ if ($spice) {
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 spicetify apply
 Start-Sleep -Seconds 5
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-'@ | Set-Content $helperScript -Encoding UTF8
+'@
+
+if ($launchOnBoot -notmatch '^[yY]') {
+    $helperScriptContent += "`r`nGet-Process | Where-Object {`$_.ProcessName -like '*spotify*'} | Stop-Process -Force -ErrorAction SilentlyContinue"
+}
+
+$helperScriptContent | Set-Content $helperScript -Encoding UTF8
+
 if (-not (Test-Path $shortcutPath)) {
     $ws = New-Object -ComObject WScript.Shell
     $s = $ws.CreateShortcut($shortcutPath)
@@ -84,8 +88,8 @@ if (-not (Test-Path $shortcutPath)) {
     }
     $s.TargetPath = $pwshPath
     $s.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helperScript`""
-    $s.WorkingDirectory = $env:USERPROFILE
-    $s.Description = "Re-applies Spicetify Hazy after Spotify updates revert it"
+    $s.WorkingDirectory = $customDir
+    $s.Description = "Spotify Remastered Updater"
     $s.Save()
 }
 
@@ -95,3 +99,6 @@ Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
 spicetify apply
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 spicetify restart
+
+Start-Sleep -Seconds 3
+exit

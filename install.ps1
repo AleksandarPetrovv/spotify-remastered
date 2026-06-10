@@ -48,6 +48,7 @@ spicetify backup apply
 spicetify apply
 Start-Sleep 4
 spicetify restart
+Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
@@ -55,7 +56,8 @@ if (-not (Test-Path $customDir)) { New-Item -ItemType Directory -Path $customDir
 $helperScript = Join-Path $customDir "spotify-remastered-updater.ps1"
 $shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 
-$launchOnBoot = Read-Host "Do you want Spotify to launch on boot? (y/n)"
+$wshell = New-Object -ComObject WScript.Shell
+$popupResponse = $wshell.Popup("do you want spotify to launch every time you run your pc?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 
 $helperScriptContent = @'
 Start-Sleep -Seconds 10
@@ -71,7 +73,7 @@ spicetify apply
 Start-Sleep -Seconds 5
 '@
 
-if ($launchOnBoot -notmatch '^[yY]') {
+if ($popupResponse -ne 6) {
     $helperScriptContent += "`r`nGet-Process | Where-Object {`$_.ProcessName -like '*spotify*'} | Stop-Process -Force -ErrorAction SilentlyContinue"
 }
 

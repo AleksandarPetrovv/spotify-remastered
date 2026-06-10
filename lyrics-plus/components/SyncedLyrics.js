@@ -105,7 +105,7 @@ const estimateLineDuration = (line, stats) => {
 };
 
 const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara }) => {
-    const [position, setPosition] = useState(0);
+    const [position, setPosition] = useState(() => (Spicetify.Player.getProgress() || 0) + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
     const activeLineEle = useRef();
     const lyricContainerEle = useRef();
 
@@ -282,7 +282,8 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 
                 const animationIndex = i - activeLineIndex;
 
-                const paddingLine = (animationIndex < 0 && -animationIndex > CONFIG.visual["lines-before"]) || animationIndex > CONFIG.visual["lines-after"];
+                const isPaused = Spicetify.Player.data.is_paused;
+                const paddingLine = !isPaused && ((animationIndex < 0 && -animationIndex > CONFIG.visual["lines-before"]) || animationIndex > CONFIG.visual["lines-after"]);
                 if (paddingLine) {
                     className += " lyrics-lyricsContainer-LyricsLine-paddingLine";
                 }
@@ -389,15 +390,13 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 });
 
 const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKara }) => {
-    const [position, setPosition] = useState(0);
+    const [position, setPosition] = useState(() => (Spicetify.Player.getProgress() || 0) + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
     const programmaticScroll = useRef(false);
     const activeLineRef = useRef(null);
     const pageRef = useRef(null);
 
     useTrackPosition(() => {
-        if (!Spicetify.Player.data.is_paused) {
-            setPosition(Spicetify.Player.getProgress() + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
-        }
+        setPosition(Spicetify.Player.getProgress() + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
     });
 
     const padded = useMemo(() => {
@@ -573,7 +572,8 @@ useEffect(() => {
                 className += " lyrics-lyricsContainer-LyricsLine-active";
             }
 
-            const paddingLine = (animationIndex < 0 && -animationIndex > CONFIG.visual["lines-before"]) || animationIndex > CONFIG.visual["lines-after"];
+            const isPaused = Spicetify.Player.data.is_paused;
+            const paddingLine = !isPaused && ((animationIndex < 0 && -animationIndex > CONFIG.visual["lines-before"]) || animationIndex > CONFIG.visual["lines-after"]);
             if (paddingLine) {
                 className += " lyrics-lyricsContainer-LyricsLine-paddingLine";
             }

@@ -15,11 +15,16 @@ Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Fo
 
 $tempZip = "$env:TEMP\spotify-remastered.zip"
 $tempExtract = "$env:TEMP\spotify-remastered"
-Invoke-WebRequest "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.0.zip" -OutFile $tempZip
+
+$latestRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/AleksandarPetrovv/spotify-remastered/releases/latest"
+Invoke-WebRequest -Uri $latestRelease.zipball_url -OutFile $tempZip
+
 if (-not (Test-Path $tempZip)) { throw "Download failed." }
 if (Test-Path $tempExtract) { Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue }
 Expand-Archive $tempZip -DestinationPath $tempExtract -Force
-$repo = Join-Path $tempExtract "spotify-remastered-v1.0"
+$inner = (Get-ChildItem -Path $tempExtract -Directory)[0].FullName
+Rename-Item -Path $inner -NewName "repository"
+$repo = Join-Path $tempExtract "repository"
 if (-not (Test-Path $repo)) { throw "Extracted repo folder not found at $repo." }
 
 if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {

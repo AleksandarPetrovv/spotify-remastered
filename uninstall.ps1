@@ -15,8 +15,14 @@ Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Fo
 $killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
 
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
-$marker = Join-Path $customDir "spicetify-was-not-installed-before"
-$fullWipe = Test-Path $marker
+$statusFile = Join-Path $customDir "spicetify-status.txt"
+$fullWipe = $false
+if (Test-Path $statusFile) {
+    $statusContent = Get-Content $statusFile -Raw
+    if ($statusContent -match 'spicetify-existed-before=False') { $fullWipe = $true }
+}
+$prevThemeFile = Join-Path $customDir "prev-theme.txt"
+$prevTheme = if (Test-Path $prevThemeFile) { (Get-Content $prevThemeFile -Raw).Trim() } else { $null }
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
@@ -30,13 +36,17 @@ if (Get-Command spicetify -ErrorAction SilentlyContinue) {
         Remove-Item -Recurse -Force (Join-Path $cfg "Themes\Hazy") -ErrorAction SilentlyContinue
         Remove-Item -Recurse -Force (Join-Path $cfg "CustomApps\lyrics-plus") -ErrorAction SilentlyContinue
     }
-    spicetify config current_theme " "
-    spicetify config inject_theme_js 0
     spicetify config custom_apps lyrics-plus-
+    if ($prevTheme) {
+        spicetify config current_theme $prevTheme
+    } else {
+        spicetify config current_theme " "
+        spicetify config inject_theme_js 0
+    }
     spicetify apply
-    spicetify restore backup
 
     if ($fullWipe) {
+        spicetify restore backup
         $spicetifyPaths = @(
             (Join-Path $env:LOCALAPPDATA 'spicetify'),
             (Join-Path $env:APPDATA 'spicetify'),
@@ -55,6 +65,7 @@ if (Get-Command spicetify -ErrorAction SilentlyContinue) {
 
 Stop-Job $killJob -ErrorAction SilentlyContinue
 Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
 Start-Sleep -Seconds 3
 exit

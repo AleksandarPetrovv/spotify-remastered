@@ -15,21 +15,31 @@ Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Fo
 
 $tempZip = "$env:TEMP\spotify-remastered.zip"
 $tempExtract = "$env:TEMP\spotify-remastered"
-Invoke-WebRequest "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/main.zip" -OutFile $tempZip
+Invoke-WebRequest "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.0.zip" -OutFile $tempZip
 if (-not (Test-Path $tempZip)) { throw "Download failed." }
 if (Test-Path $tempExtract) { Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue }
 Expand-Archive $tempZip -DestinationPath $tempExtract -Force
-$repo = Join-Path $tempExtract "spotify-remastered-main"
+$repo = Join-Path $tempExtract "spotify-remastered-v1.0"
 if (-not (Test-Path $repo)) { throw "Extracted repo folder not found at $repo." }
 
 if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
-    Invoke-WebRequest "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" | Invoke-Expression
+    Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
+    $spiceInstaller = "$env:TEMP\spicetify-install.ps1"
+    Invoke-WebRequest "https://raw.githubusercontent.com/spicetify/cli/main/install.ps1" -OutFile $spiceInstaller
+    $content = Get-Content $spiceInstaller -Raw
+    $content = $content -replace '(?s)#region Marketplace.*?#endregion Marketplace', ''
+    $content | Set-Content $spiceInstaller -Encoding UTF8
+    powershell -ExecutionPolicy Bypass -File $spiceInstaller
     Start-Sleep 2
+    $env:PATH = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
 }
 
+spicetify | Out-Null
 $cfg = Get-SpicetifyConfigDir
 $themesDir = Join-Path $cfg "Themes"
 $appsDir = Join-Path $cfg "CustomApps"
+if (-not (Test-Path $themesDir)) { New-Item -ItemType Directory -Path $themesDir | Out-Null }
+if (-not (Test-Path $appsDir)) { New-Item -ItemType Directory -Path $appsDir | Out-Null }
 $hazyDest = Join-Path $themesDir "Hazy"
 $lpDest = Join-Path $appsDir "lyrics-plus"
 

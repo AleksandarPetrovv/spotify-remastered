@@ -24,9 +24,7 @@ KILL_PID=$!
 TEMP_ZIP="/tmp/spotify-remastered.zip"
 TEMP_EXTRACT="/tmp/spotify-remastered"
 
-LATEST_URL=$(curl -s "https://api.github.com/repos/AleksandarPetrovv/spotify-remastered/releases/latest" | grep '"zipball_url"' | cut -d '"' -f 4)
-if [ -z "$LATEST_URL" ]; then echo "Failed to fetch latest release URL. You may be rate-limited by GitHub."; kill $KILL_PID 2>/dev/null; exit 1; fi
-curl -L -o "$TEMP_ZIP" "$LATEST_URL"
+curl -L -o "$TEMP_ZIP" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/cli.zip"
 
 if [ ! -f "$TEMP_ZIP" ]; then echo "Download failed."; exit 1; fi
 rm -rf "$TEMP_EXTRACT"

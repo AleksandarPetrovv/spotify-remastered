@@ -17,9 +17,18 @@ get_spicetify_config_dir() {
     echo ""
 }
 
-pkill -f -i spotify 2>/dev/null || true
-(while true; do pkill -f -i spotify 2>/dev/null || true; sleep 0.5; done) &
+pkill -9 -xi spotify >/dev/null 2>&1 || true
+
+(while true; do 
+    pkill -9 -xi spotify >/dev/null 2>&1 || true
+    sleep 0.1
+done) </dev/null >/dev/null 2>&1 &
 KILL_PID=$!
+
+cleanup() {
+    kill "$KILL_PID" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
 STATUS_FILE="$CUSTOM_DIR/spicetify-status.txt"
@@ -80,9 +89,10 @@ if command -v spicetify &>/dev/null; then
     fi
 fi
 
-kill $KILL_PID 2>/dev/null || true
-wait $KILL_PID 2>/dev/null || true
-pkill -f -i spotify 2>/dev/null || true
+kill "$KILL_PID" >/dev/null 2>&1 || true
+wait "$KILL_PID" >/dev/null 2>&1 || true
+pkill -9 -xi spotify >/dev/null 2>&1 || true
 
 sleep 3
+osascript -e 'tell application "Terminal" to close front window' 2>/dev/null || true
 exit 0

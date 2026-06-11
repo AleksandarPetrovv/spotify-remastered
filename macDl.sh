@@ -17,9 +17,18 @@ get_spicetify_config_dir() {
     echo "Could not locate Spicetify config directory." >&2; exit 1
 }
 
-pkill -f -i spotify 2>/dev/null || true
-(while true; do pkill -f -i spotify 2>/dev/null || true; sleep 0.5; done) &
+pkill -9 -xi spotify >/dev/null 2>&1 || true
+
+(while true; do 
+    pkill -9 -xi spotify >/dev/null 2>&1 || true
+    sleep 0.1
+done) </dev/null >/dev/null 2>&1 &
 KILL_PID=$!
+
+cleanup() {
+    kill "$KILL_PID" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
 
 TEMP_ZIP="/tmp/spotify-remastered.zip"
 TEMP_EXTRACT="/tmp/spotify-remastered"
@@ -98,7 +107,7 @@ spicetify config custom_apps lyrics-plus
 spicetify backup apply
 spicetify apply
 
-read -p "do you want spotify to launch every time you log in? (y/n): " LAUNCH_ANSWER
+LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"No", "Yes"} default button "No" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
 
 HELPER_SCRIPT="$CUSTOM_DIR/spotify-remastered-updater.sh"
 cat > "$HELPER_SCRIPT" << 'HELPEREOF'
@@ -108,13 +117,13 @@ SPICE=$(command -v spicetify 2>/dev/null)
 if [ -n "$SPICE" ]; then
     timeout 60 "$SPICE" upgrade 2>/dev/null || true
 fi
-pkill -f -i spotify 2>/dev/null || true
+pkill -9 -xi spotify >/dev/null 2>&1 || true
 spicetify apply
 sleep 5
 HELPEREOF
 
-if [ "$LAUNCH_ANSWER" != "y" ] && [ "$LAUNCH_ANSWER" != "Y" ]; then
-    echo 'pkill -f -i spotify 2>/dev/null || true' >> "$HELPER_SCRIPT"
+if [ "$LAUNCH_ANSWER" != "Yes" ]; then
+    echo 'pkill -9 -xi spotify >/dev/null 2>&1 || true' >> "$HELPER_SCRIPT"
 fi
 
 chmod +x "$HELPER_SCRIPT"
@@ -153,9 +162,11 @@ rm -rf "$TEMP_EXTRACT"
 
 spicetify apply
 
-kill $KILL_PID 2>/dev/null || true
-wait $KILL_PID 2>/dev/null || true
+kill "$KILL_PID" >/dev/null 2>&1 || true
+wait "$KILL_PID" >/dev/null 2>&1 || true
+
 open -a Spotify
 
 sleep 3
+osascript -e 'tell application "Terminal" to close front window' 2>/dev/null || true
 exit 0

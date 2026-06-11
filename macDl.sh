@@ -50,6 +50,7 @@ if ! command -v spicetify &>/dev/null; then
     sed -i '' '/Do you want to install spicetify Marketplace/,/spicetify-marketplace/d' /tmp/spicetify-install.sh
     sh /tmp/spicetify-install.sh
     rm -f /tmp/spicetify-install.sh
+    rm -f install.log
     sleep 2
     export PATH="$HOME/.spicetify:$PATH"
     SPICETIFY_EXISTED_BEFORE=false

@@ -91,8 +91,9 @@ fi
 
 kill "$KILL_PID" >/dev/null 2>&1 || true
 wait "$KILL_PID" >/dev/null 2>&1 || true
+
+sleep 1
 pkill -9 -xi spotify >/dev/null 2>&1 || true
 
-sleep 3
-osascript -e 'tell application "Terminal" to close front window' 2>/dev/null || true
+nohup bash -c "sleep 0.5; osascript -e 'tell application \"Terminal\" to close front window'" >/dev/null 2>&1 &
 exit 0

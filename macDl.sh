@@ -119,7 +119,7 @@ if [ -n "$SPICE" ]; then
     timeout 60 "$SPICE" upgrade 2>/dev/null || true
 fi
 pkill -9 -xi spotify >/dev/null 2>&1 || true
-spicetify apply
+spicetify backup apply
 sleep 5
 HELPEREOF
 

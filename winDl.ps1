@@ -94,7 +94,10 @@ spicetify apply
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 $helperScript = Join-Path $customDir "spotify-remastered-updater.ps1"
-$shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
+$vbsLauncher = Join-Path $customDir "spotify-remastered-updater.vbs"
+$startupVbs = Join-Path $startupDir "Spotify Remastered Updater.vbs"
+$oldShortcut = Join-Path $startupDir "Spotify Remastered Updater.lnk"
+Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue
 
 $wshell = New-Object -ComObject WScript.Shell
 $popupResponse = $wshell.Popup("do you want spotify to launch every time you run your pc?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
@@ -109,7 +112,7 @@ if ($spice) {
     Remove-Job $job -Force -ErrorAction SilentlyContinue
 }
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-spicetify apply
+spicetify backup apply
 Start-Sleep -Seconds 5
 '@
 
@@ -119,20 +122,19 @@ if ($popupResponse -ne 6) {
 
 $helperScriptContent | Set-Content $helperScript -Encoding UTF8
 
-if (-not (Test-Path $shortcutPath)) {
-    $ws = New-Object -ComObject WScript.Shell
-    $s = $ws.CreateShortcut($shortcutPath)
-    $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-    if ($pwshCmd) { $pwshPath = $pwshCmd.Source }
-    else {
-        $ps5 = Get-Command powershell.exe -ErrorAction SilentlyContinue
-        if ($ps5) { $pwshPath = $ps5.Source } else { $pwshPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
-    }
-    $s.TargetPath = $pwshPath
-    $s.Arguments = "-WindowStyle Hidden -ExecutionPolicy Bypass -File `"$helperScript`""
-    $s.WorkingDirectory = $customDir
-    $s.Description = "Spotify Remastered Updater"
-    $s.Save()
+$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+if ($pwshCmd) { $pwshPath = $pwshCmd.Source }
+else {
+    $ps5 = Get-Command powershell.exe -ErrorAction SilentlyContinue
+    if ($ps5) { $pwshPath = $ps5.Source } else { $pwshPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
+}
+
+@"
+CreateObject("WScript.Shell").Run """$pwshPath"" -ExecutionPolicy Bypass -File """"$helperScript"""""", 0, False
+"@ | Set-Content $vbsLauncher -Encoding ASCII
+
+if (-not (Test-Path $startupVbs)) {
+    Copy-Item $vbsLauncher $startupVbs
 }
 
 Remove-Item $tempZip -Force -ErrorAction SilentlyContinue

@@ -2397,7 +2397,7 @@ class LyricsContainer extends react.Component {
   resetDelay() {
     CONFIG.visual.delay =
       Number(
-        localStorage.getItem(`lyrics-delay:${Spicetify.Player.data.item.uri}`),
+        localStorage.getItem(`lyrics-delay:${Spicetify.Player.data?.item?.uri}`),
       ) || 0;
   }
 
@@ -2532,7 +2532,7 @@ class LyricsContainer extends react.Component {
    * @param {string[]|null} modesToClear - Optional specific modes to clear (e.g., ["gemini_vi", "gemini_romaji"]).
    *                                       If null, clears ALL cache for the URI.
    */
-  resetTranslationCache(uri, modesToClear = null) {
+  async resetTranslationCache(uri, modesToClear = null) {
     const styleKey =
       CONFIG.visual["translate:translation-style"] || "smart_adaptive";
     const pronounKey = CONFIG.visual["translate:pronoun-mode"] || "default";
@@ -2542,11 +2542,11 @@ class LyricsContainer extends react.Component {
 
     if (modesToClear && modesToClear.length > 0) {
       // Selective clear: only specified modes
-      modesToClear.forEach((mode) => {
-        if (!mode || mode === "none") return;
+      for (const mode of modesToClear) {
+        if (!mode || mode === "none") continue;
         const cacheKey = `${uri}:${mode}:${styleKey}:${pronounKey}`;
-        if (CacheManager.delete(cacheKey)) clearedCount++;
-      });
+        if (await CacheManager.delete(cacheKey)) clearedCount++;
+      }
 
       // Clear from persistent localStorage (gemini-cache)
       try {
@@ -2585,7 +2585,7 @@ class LyricsContainer extends react.Component {
     } else {
       // Full clear: all translations for this URI (original behavior)
       clearedCount = CacheManager.clearByUri(uri);
-      this.deleteLocalLyrics(uri);
+      this.deleteLocalLyrics(uri).catch(() => {});
 
       // Clear ALL Gemini cache entries for this URI
       try {
@@ -3046,11 +3046,10 @@ class LyricsContainer extends react.Component {
       CacheManager.clearL1();
       this.updateVisualOnConfigChange();
       this.forceUpdate();
-      this.fetchLyrics(
-        Spicetify.Player.data.item,
-        this.state.explicitMode,
-        true,
-      );
+      const item = Spicetify.Player.data?.item;
+      if (item) {
+        this.fetchLyrics(item, this.state.explicitMode, true);
+      }
     };
 
     this.viewPort =
@@ -3654,7 +3653,7 @@ class LyricsContainer extends react.Component {
                 }
 
                 if (this.state.isCached) {
-                  this.deleteLocalLyrics(this.currentTrackUri);
+                  this.deleteLocalLyrics(this.currentTrackUri).catch(() => {});
                   Spicetify.showNotification(
                     `✓ ${getText("notifications.cacheDeleted")}`,
                     false,

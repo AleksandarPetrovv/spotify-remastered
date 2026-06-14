@@ -25,8 +25,8 @@ $prevThemeFile = Join-Path $customDir "prev-theme.txt"
 $prevTheme = if (Test-Path $prevThemeFile) { (Get-Content $prevThemeFile -Raw).Trim() } else { $null }
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$shortcutPath = Join-Path $startupDir "Spotify Remastered Updater.lnk"
-Remove-Item $shortcutPath -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.vbs") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.lnk") -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $customDir -ErrorAction SilentlyContinue
 
 if (Get-Command spicetify -ErrorAction SilentlyContinue) {

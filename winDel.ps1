@@ -14,6 +14,8 @@ function Get-SpicetifyConfigDir {
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 $killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
 
+try {
+
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
 $statusFile = Join-Path $customDir "spicetify-status.txt"
 $fullWipe = $false
@@ -63,8 +65,10 @@ if (Get-Command spicetify -ErrorAction SilentlyContinue) {
     }
 }
 
-Stop-Job $killJob -ErrorAction SilentlyContinue
-Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+} finally {
+    Stop-Job $killJob -ErrorAction SilentlyContinue
+    Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+}
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 
 Start-Sleep -Seconds 3

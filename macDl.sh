@@ -116,7 +116,12 @@ cat > "$HELPER_SCRIPT" << 'HELPEREOF'
 sleep 10
 SPICE=$(command -v spicetify 2>/dev/null)
 if [ -n "$SPICE" ]; then
-    timeout 60 "$SPICE" upgrade 2>/dev/null || true
+    "$SPICE" upgrade &
+    UPGRADE_PID=$!
+    ( sleep 60; kill "$UPGRADE_PID" 2>/dev/null ) &
+    TIMER_PID=$!
+    wait "$UPGRADE_PID" 2>/dev/null || true
+    kill "$TIMER_PID" 2>/dev/null || true
 fi
 pkill -9 -xi spotify >/dev/null 2>&1 || true
 spicetify backup apply
@@ -133,8 +138,8 @@ PLIST_NAME="com.spotify-remastered.updater"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
 mkdir -p "$HOME/Library/LaunchAgents"
 
-if [ ! -f "$PLIST_PATH" ]; then
-    cat > "$PLIST_PATH" << PLISTEOF
+launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null || true
+cat > "$PLIST_PATH" << PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -155,8 +160,7 @@ if [ ! -f "$PLIST_PATH" ]; then
 </dict>
 </plist>
 PLISTEOF
-    launchctl load "$PLIST_PATH" 2>/dev/null || true
-fi
+launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH" 2>/dev/null || true
 
 rm -f "$TEMP_ZIP"
 rm -rf "$TEMP_EXTRACT"

@@ -46,7 +46,7 @@ fi
 
 PLIST_NAME="com.spotify-remastered.updater"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
-launchctl unload "$PLIST_PATH" 2>/dev/null || true
+launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null || true
 rm -f "$PLIST_PATH"
 rm -rf "$CUSTOM_DIR"
 

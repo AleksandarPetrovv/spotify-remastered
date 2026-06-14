@@ -14,6 +14,8 @@ function Get-SpicetifyConfigDir {
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
 $killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
 
+try {
+
 $tempZip = "$env:TEMP\spotify-remastered.zip"
 $tempExtract = "$env:TEMP\spotify-remastered"
 
@@ -129,21 +131,25 @@ else {
     if ($ps5) { $pwshPath = $ps5.Source } else { $pwshPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
 }
 
-@"
-CreateObject("WScript.Shell").Run """$pwshPath"" -ExecutionPolicy Bypass -File """"$helperScript"""""", 0, False
-"@ | Set-Content $vbsLauncher -Encoding ASCII
+$q = '""'
+$vbsLine = 'CreateObject("WScript.Shell").Run "' + $q + $pwshPath + $q + ' -ExecutionPolicy Bypass -File ' + $q + $helperScript + $q + '", 0, False'
+$vbsLine | Set-Content $vbsLauncher -Encoding ASCII
 
-if (-not (Test-Path $startupVbs)) {
-    Copy-Item $vbsLauncher $startupVbs
-}
+Copy-Item $vbsLauncher $startupVbs -Force
 
 Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
 Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
 
 spicetify apply
-Stop-Job $killJob -ErrorAction SilentlyContinue
-Remove-Job $killJob -Force -ErrorAction SilentlyContinue
-Start-Process "$env:APPDATA\Spotify\Spotify.exe"
+
+} finally {
+    Stop-Job $killJob -ErrorAction SilentlyContinue
+    Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+}
+
+try { Start-Process "spotify" } catch {
+    try { Start-Process "$env:APPDATA\Spotify\Spotify.exe" } catch { }
+}
 
 Start-Sleep -Seconds 3
 exit

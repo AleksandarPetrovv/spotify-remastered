@@ -4,6 +4,12 @@
         html::before {
             content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #0a0a0a; z-index: 999999;
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 1;
+        }
+        html.sr-splash-done::before {
+            opacity: 0;
+            pointer-events: none;
         }
     `;
     document.documentElement.appendChild(splashStyle);
@@ -17,7 +23,7 @@
                 background: #0a0a0a; z-index: 999999;
                 display: flex; flex-direction: column;
                 align-items: center; justify-content: center;
-                transition: opacity 2s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
                 opacity: 1;
             }
             #sr-splash .sr-content {
@@ -68,7 +74,8 @@
     document.documentElement.appendChild(splash);
     setTimeout(() => {
         splash.style.opacity = "0";
-        setTimeout(() => { splash.remove(); splashStyle.remove(); }, 2000);
+        document.documentElement.classList.add("sr-splash-done");
+        setTimeout(() => { splash.remove(); splashStyle.remove(); }, 800);
     }, 3000);
 
     if (localStorage.getItem("brightAmount") === null) {

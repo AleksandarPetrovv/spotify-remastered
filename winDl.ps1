@@ -85,6 +85,13 @@ here is what each file does:
 - about-this-folder.txt: this file.
 "@ | Set-Content (Join-Path $customDir "about-this-folder.txt") -Encoding UTF8
 
+$wshell = New-Object -ComObject WScript.Shell
+$premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
+
+$spotxFlags = "-podcasts_off"
+if ($premiumResponse -eq 6) { $spotxFlags += " -premium" }
+try { iex "& { $(iwr -useb 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1') } -confirm_spoti_recomended_over $spotxFlags" } catch { }
+
 spicetify config inject_css 1
 spicetify config replace_colors 1
 spicetify config overwrite_assets 1
@@ -101,15 +108,6 @@ $vbsLauncher = Join-Path $customDir "spotify-remastered-updater.vbs"
 $startupVbs = Join-Path $startupDir "Spotify Remastered Updater.vbs"
 $oldShortcut = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue
-
-$wshell = New-Object -ComObject WScript.Shell
-$premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
-
-$spotxFlags = "-podcasts_off"
-if ($premiumResponse -eq 6) { $spotxFlags += " -premium" }
-iex "& { $(iwr -useb 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1') } $spotxFlags"
-
-spicetify apply
 
 $popupResponse = $wshell.Popup("Do you want Spotify to open every time you turn on your PC?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 

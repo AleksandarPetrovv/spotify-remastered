@@ -137,11 +137,12 @@
     }
   }
 
-  function getCurrentBackground(replace) {
+  function getCurrentBackground() {
     let url = Spicetify?.Player?.data?.item?.metadata?.image_url;
-    if (toggles.UseCustomBackground || !url || !URL.canParse(url)) return startImage;
-    if (replace)
+    if (toggles.UseCustomBackground || !url) return startImage;
+    if (url.startsWith("spotify:image:"))
       url = url.replace("spotify:image:", "https://i.scdn.co/image/");
+    if (!URL.canParse(url)) return startImage;
     return url;
   }
 
@@ -173,7 +174,7 @@
 
     // Custom code added by lily
     if (!toggles.UseCustomColor) {
-      const imgSrc = getCurrentBackground(true);
+      const imgSrc = getCurrentBackground();
 
       if (_colorCache[imgSrc]) {
         setAccentColor(_colorCache[imgSrc]);
@@ -215,7 +216,7 @@
     // Update background
     document.documentElement.style.setProperty(
       "--image_url",
-      `url("${getCurrentBackground(false)}")`
+      `url("${getCurrentBackground()}")`
     );
   }
 

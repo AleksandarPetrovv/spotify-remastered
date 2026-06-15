@@ -109,6 +109,16 @@ spicetify restore 2>/dev/null || true
 spicetify backup apply
 spicetify apply
 
+PREMIUM_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"No", "Yes"} default button "No" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
+
+SPOTX_FLAGS="-h"
+if [ "$PREMIUM_ANSWER" = "Yes" ]; then
+    SPOTX_FLAGS="-h -p"
+fi
+bash <(curl -sSL https://spotx-official.github.io/run.sh) $SPOTX_FLAGS
+
+spicetify apply
+
 LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"No", "Yes"} default button "No" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
 
 HELPER_SCRIPT="$CUSTOM_DIR/spotify-remastered-updater.sh"

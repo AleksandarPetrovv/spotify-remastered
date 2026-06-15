@@ -103,7 +103,15 @@ $oldShortcut = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue
 
 $wshell = New-Object -ComObject WScript.Shell
-$popupResponse = $wshell.Popup("do you want spotify to launch every time you run your pc?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
+$premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
+
+$spotxFlags = "-podcasts_off"
+if ($premiumResponse -eq 6) { $spotxFlags += " -premium" }
+iex "& { $(iwr -useb 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1') } $spotxFlags"
+
+spicetify apply
+
+$popupResponse = $wshell.Popup("Do you want Spotify to open every time you turn on your PC?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 
 $helperScriptContent = @'
 Start-Sleep -Seconds 10

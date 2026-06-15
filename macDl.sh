@@ -105,6 +105,7 @@ spicetify config overwrite_assets 1
 spicetify config inject_theme_js 1
 spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
+spicetify restore 2>/dev/null || true
 spicetify backup apply
 spicetify apply
 

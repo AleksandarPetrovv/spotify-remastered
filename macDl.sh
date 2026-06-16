@@ -99,7 +99,7 @@ here is what each file does:
 - about-this-folder.txt: this file.
 EOF
 
-PREMIUM_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"No", "Yes"} default button "No" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
+PREMIUM_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
 
 SPOTX_FLAGS="-h"
 if [ "$PREMIUM_ANSWER" = "Yes" ]; then
@@ -117,7 +117,7 @@ spicetify restore 2>/dev/null || true
 spicetify backup apply
 spicetify apply
 
-LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"No", "Yes"} default button "No" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
+LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
 
 HELPER_SCRIPT="$CUSTOM_DIR/spotify-remastered-updater.sh"
 cat > "$HELPER_SCRIPT" << 'HELPEREOF'
@@ -181,6 +181,9 @@ wait "$KILL_PID" >/dev/null 2>&1 || true
 
 open -a Spotify
 
-sleep 3
-osascript -e 'tell application "Terminal" to close front window' 2>/dev/null || true
-exit 0
+echo ""
+echo "============================================"
+echo "  Spotify Remastered installed successfully!"
+echo "  You can close this window now."
+echo "============================================"
+echo ""

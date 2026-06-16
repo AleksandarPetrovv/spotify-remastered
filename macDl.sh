@@ -70,6 +70,10 @@ cp -r "$REPO/hazy" "$HAZY_DEST"
 rm -rf "$LP_DEST"
 cp -r "$REPO/lyrics-plus" "$LP_DEST"
 
+EXTENSIONS_DIR="$CFG/Extensions"
+mkdir -p "$EXTENSIONS_DIR"
+cp "$REPO/hazy/extensions/download.js" "$EXTENSIONS_DIR/download.js"
+
 PREV_THEME=$(spicetify config current_theme 2>/dev/null | xargs)
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
 mkdir -p "$CUSTOM_DIR"
@@ -170,6 +174,53 @@ cat > "$PLIST_PATH" << PLISTEOF
 </plist>
 PLISTEOF
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH" 2>/dev/null || true
+
+SPOTDL_URL=$(curl -s https://api.github.com/repos/spotDL/spotify-downloader/releases/latest \
+    | python3 -c "import json,sys; [print(a['browser_download_url']) for a in json.load(sys.stdin)['assets'] if 'darwin' in a['name']]" 2>/dev/null || true)
+if [ -n "$SPOTDL_URL" ]; then
+    curl -L -o "$CUSTOM_DIR/spotdl" "$SPOTDL_URL"
+    chmod +x "$CUSTOM_DIR/spotdl"
+fi
+
+cp "$REPO/hazy/extensions/download-helper.sh" "$CUSTOM_DIR/download-helper.sh"
+chmod +x "$CUSTOM_DIR/download-helper.sh"
+
+DL_PLIST_NAME="com.spotify-remastered.download-helper"
+DL_PLIST_PATH="$HOME/Library/LaunchAgents/$DL_PLIST_NAME.plist"
+launchctl bootout "gui/$(id -u)/$DL_PLIST_NAME" 2>/dev/null || launchctl unload "$DL_PLIST_PATH" 2>/dev/null || true
+cat > "$DL_PLIST_PATH" << DLPLISTEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>$DL_PLIST_NAME</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$CUSTOM_DIR/download-helper.sh</string>
+    </array>
+    <key>inetdCompatibility</key>
+    <dict>
+        <key>Wait</key>
+        <false/>
+    </dict>
+    <key>Sockets</key>
+    <dict>
+        <key>Listeners</key>
+        <dict>
+            <key>SockServiceName</key>
+            <string>27381</string>
+            <key>SockType</key>
+            <string>stream</string>
+        </dict>
+    </dict>
+</dict>
+</plist>
+DLPLISTEOF
+launchctl bootstrap "gui/$(id -u)" "$DL_PLIST_PATH" 2>/dev/null || launchctl load "$DL_PLIST_PATH" 2>/dev/null || true
+
+spicetify config extensions download.js
 
 rm -f "$TEMP_ZIP"
 rm -rf "$TEMP_EXTRACT"

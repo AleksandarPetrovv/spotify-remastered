@@ -12,6 +12,8 @@ printf "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r
 (
     downloadFolder=$(osascript -e 'POSIX path of (choose folder with prompt "Select download location")' 2>/dev/null)
     if [ -n "$downloadFolder" ]; then
+        osascript -e 'display dialog "Downloading..." with title "Spotify Remastered" buttons {"Cancel"} giving up after 7200' >/dev/null 2>&1 &
+        DIALOG_PID=$!
         SPOTDL="$HOME/.local/share/spotify-remastered/spotdl"
         FFMPEG="$HOME/.spotdl/ffmpeg"
         if [ ! -f "$FFMPEG" ]; then
@@ -22,6 +24,7 @@ printf "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 2\r
             --output "$downloadFolder" \
             --ffmpeg "$FFMPEG" \
             >/dev/null 2>&1
+        kill "$DIALOG_PID" 2>/dev/null
         osascript -e 'display notification "Download complete!" with title "Spotify Remastered"'
     fi
 ) </dev/null >/dev/null 2>/dev/null &

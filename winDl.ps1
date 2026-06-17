@@ -59,6 +59,10 @@ Copy-Item -Recurse (Join-Path $repo "hazy") $hazyDest
 Remove-Item -Recurse -Force $lpDest -ErrorAction SilentlyContinue
 Copy-Item -Recurse (Join-Path $repo "lyrics-plus") $lpDest
 
+$extensionsDir = Join-Path $cfg "Extensions"
+if (-not (Test-Path $extensionsDir)) { New-Item -ItemType Directory -Path $extensionsDir | Out-Null }
+Copy-Item (Join-Path $repo "hazy\extensions\download.js") (Join-Path $extensionsDir "download.js") -Force
+
 $prevTheme = (spicetify config current_theme 2>$null)
 if ($prevTheme) { $prevTheme = $prevTheme.Trim() }
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
@@ -82,8 +86,32 @@ here is what each file does:
 - spotify-remastered-updater.ps1: runs on startup to keep spicetify applied after spotify updates itself.
 - spicetify-status.txt: stores whether spicetify was already on your pc before you installed spotify remastered. the uninstall script reads this to know whether to fully remove spicetify or just remove the theme and custom app.
 - prev-theme.txt: if this file exists it stores the name of your previous spicetify theme so it can be restored when you uninstall spotify remastered.
+- download-helper.ps1: background TCP listener that handles song downloads from the Spicetify download extension.
 - about-this-folder.txt: this file.
 "@ | Set-Content (Join-Path $customDir "about-this-folder.txt") -Encoding UTF8
+
+$spotdlRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/spotDL/spotify-downloader/releases/latest"
+$spotdlAsset = $spotdlRelease.assets | Where-Object { $_.name -like "*win32*" } | Select-Object -First 1
+if ($spotdlAsset) {
+    Invoke-WebRequest -Uri $spotdlAsset.browser_download_url -OutFile (Join-Path $customDir "spotdl.exe")
+}
+
+Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $customDir "download-helper.ps1") -Force
+
+$dlHelperScript = Join-Path $customDir "download-helper.ps1"
+$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
+if ($pwshCmd) { $dlPwsh = $pwshCmd.Source }
+else {
+    $ps5 = Get-Command powershell.exe -ErrorAction SilentlyContinue
+    if ($ps5) { $dlPwsh = $ps5.Source } else { $dlPwsh = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
+}
+$q = '""'
+$dlVbsContent = 'CreateObject("WScript.Shell").Run "' + $q + $dlPwsh + $q + ' -ExecutionPolicy Bypass -STA -File ' + $q + $dlHelperScript + $q + '", 0, False'
+$dlVbs = Join-Path $customDir "download-helper.vbs"
+$dlVbsContent | Set-Content $dlVbs -Encoding ASCII
+$dlStartupVbs = Join-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" "Spotify Remastered Download Helper.vbs"
+Copy-Item $dlVbs $dlStartupVbs -Force
+Start-Process "wscript.exe" -ArgumentList "`"$dlVbs`"" -WindowStyle Hidden
 
 $wshell = New-Object -ComObject WScript.Shell
 $premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
@@ -98,6 +126,7 @@ spicetify config overwrite_assets 1
 spicetify config inject_theme_js 1
 spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
+spicetify config extensions download.js
 spicetify restore 2>$null
 spicetify backup apply
 spicetify apply

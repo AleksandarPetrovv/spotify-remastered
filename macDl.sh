@@ -210,7 +210,7 @@ cat > "$DL_PLIST_PATH" << DLPLISTEOF
         <key>Listeners</key>
         <dict>
             <key>SockServiceName</key>
-            <string>27381</string>
+            <string>27382</string>
             <key>SockType</key>
             <string>stream</string>
         </dict>

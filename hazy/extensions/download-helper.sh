@@ -8,9 +8,7 @@ done
 path=$(echo "$request_line" | awk '{print $2}')
 route=$(echo "$path" | cut -d'?' -f1)
 query=$(echo "$path" | cut -d'?' -s -f2)
-
-STATUS_FILE="/tmp/spotdl-status.txt"
-PID_FILE="/tmp/spotdl-pid.txt"
+trackId=$(echo "$query" | sed -n 's/.*id=\([^& ]*\).*/\1/p')
 
 respond() {
     local body="$1"
@@ -20,7 +18,19 @@ respond() {
 
 case "$route" in
     /download)
-        trackId=$(echo "$query" | sed 's/.*id=\([^& ]*\).*/\1/')
+        if [ -z "$trackId" ]; then
+            respond '{"status":"error"}'
+            exit 0
+        fi
+
+        STATUS_FILE="/tmp/spotdl-status-${trackId}.txt"
+        PID_FILE="/tmp/spotdl-pid-${trackId}.txt"
+
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+            respond '{"status":"already_downloading"}'
+            exit 0
+        fi
+
         downloadFolder=$(osascript -e 'POSIX path of (choose folder with prompt "Select download location")' 2>/dev/null)
 
         if [ -z "$downloadFolder" ]; then
@@ -45,18 +55,29 @@ case "$route" in
         echo "$SPOTDL_PID" > "$PID_FILE"
         disown "$SPOTDL_PID"
 
-        ( while kill -0 "$SPOTDL_PID" 2>/dev/null; do sleep 1; done; [ -f "$PID_FILE" ] && echo "done" > "$STATUS_FILE" ) &
+        ( while kill -0 "$SPOTDL_PID" 2>/dev/null; do sleep 1; done; echo "done" > "$STATUS_FILE"; rm -f "$PID_FILE"; sleep 30; rm -f "$STATUS_FILE" ) &
         disown $!
 
         respond '{"status":"started"}'
         ;;
 
     /status)
-        status=$(cat "$STATUS_FILE" 2>/dev/null || echo "unknown")
+        if [ -z "$trackId" ]; then
+            respond '{"status":"idle"}'
+            exit 0
+        fi
+        STATUS_FILE="/tmp/spotdl-status-${trackId}.txt"
+        status=$(cat "$STATUS_FILE" 2>/dev/null || echo "idle")
         respond "{\"status\":\"$status\"}"
         ;;
 
     /cancel)
+        if [ -z "$trackId" ]; then
+            respond '{"status":"cancelled"}'
+            exit 0
+        fi
+        PID_FILE="/tmp/spotdl-pid-${trackId}.txt"
+        STATUS_FILE="/tmp/spotdl-status-${trackId}.txt"
         if [ -f "$PID_FILE" ]; then
             PID=$(cat "$PID_FILE")
             pkill -P "$PID" 2>/dev/null || true

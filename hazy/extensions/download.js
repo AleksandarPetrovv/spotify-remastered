@@ -1,179 +1,173 @@
-(async () => {
-    async function waitForSpicetify() {
-        while (
-            !window.Spicetify ||
-            !Spicetify.ContextMenu ||
-            !Spicetify.URI ||
-            !Spicetify.showNotification
-        ) {
-            await new Promise(r => setTimeout(r, 100));
+(async function() {
+    while (
+        !window.Spicetify ||
+        !Spicetify.ContextMenu ||
+        !Spicetify.URI ||
+        !Spicetify.showNotification
+    ) {
+        await new Promise(function(r) { setTimeout(r, 100); });
+    }
+
+    var activeDownloads = new Map();
+    var notifEl = null;
+    var notifTimeout = null;
+    function truncate(str, max) {
+        return str.length > max ? str.slice(0, max - 1) + "…" : str;
+    }
+
+    function getTrackName(trackId) {
+        var dl = activeDownloads.get(trackId);
+        return dl ? dl.name : "track";
+    }
+
+    function injectNotifStyles() {
+        if (document.getElementById("spotdl-notif-style")) return;
+        var s = document.createElement("style");
+        s.id = "spotdl-notif-style";
+        s.textContent = "@keyframes spotdl-spin{to{transform:rotate(360deg)}}"
+            + "@keyframes spotdl-notif-in{from{opacity:0;transform:translateX(40px)}to{opacity:1;transform:translateX(0)}}"
+            + "@keyframes spotdl-notif-out{from{opacity:1;transform:translateX(0)}to{opacity:0;transform:translateX(40px)}}"
+            + "@keyframes spotdl-circle{to{stroke-dashoffset:0}}"
+            + "@keyframes spotdl-check{to{stroke-dashoffset:0}}";
+        document.head.appendChild(s);
+    }
+
+    function getActiveCount() {
+        var c = 0;
+        activeDownloads.forEach(function(dl) { if (dl.status === "downloading") c++; });
+        return c;
+    }
+
+    function getLastActiveTrackId() {
+        var last = null;
+        activeDownloads.forEach(function(dl, id) { if (dl.status === "downloading") last = id; });
+        return last;
+    }
+
+    function updateNotif() {
+        if (!notifEl) return;
+        var count = getActiveCount();
+        var textEl = notifEl.querySelector("#spotdl-notif-text");
+        var iconWrap = notifEl.querySelector("#spotdl-notif-icon");
+        if (!textEl || !iconWrap) return;
+
+        if (count === 0) {
+            iconWrap.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none">'
+                + '<circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>'
+                + '<circle cx="12" cy="12" r="10" stroke="#1DB954" stroke-width="2" stroke-dasharray="63" stroke-dashoffset="63" style="animation:spotdl-circle 0.4s ease forwards"/>'
+                + '<path d="M7.5 12.5L10.5 15.5L16.5 9.5" stroke="#1DB954" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="20" stroke-dashoffset="20" style="animation:spotdl-check 0.3s ease 0.25s forwards"/>'
+                + '</svg>';
+            textEl.textContent = activeDownloads.size > 1 ? "All downloads complete!" : "Downloaded!";
+            notifEl.style.justifyContent = "center";
+            if (notifTimeout) clearTimeout(notifTimeout);
+            notifTimeout = setTimeout(function() { removeNotif(); }, 2500);
+            return;
+        }
+
+        if (notifTimeout) { clearTimeout(notifTimeout); notifTimeout = null; }
+        notifEl.style.justifyContent = "flex-start";
+
+        iconWrap.innerHTML = '<div style="position:relative;width:22px;height:22px">'
+            + '<div style="position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,0.1)"></div>'
+            + '<div style="position:absolute;inset:0;border:2px solid transparent;border-top-color:#fff;border-radius:50%;animation:spotdl-spin 0.75s linear infinite"></div>'
+            + '</div>';
+
+        if (count === 1) {
+            var tid = getLastActiveTrackId();
+            textEl.textContent = "Downloading \"" + truncate(getTrackName(tid), 25) + "\"";
+        } else {
+            textEl.textContent = "Downloading " + count + " songs…";
         }
     }
 
-    await waitForSpicetify();
-
-    let pollInterval = null;
-
-    function hideDownloadModal() {
-        const el = document.getElementById("spotdl-modal-overlay");
-        if (el) {
-            el.style.opacity = "0";
-            setTimeout(() => el.remove(), 200);
-        }
+    function showNotif() {
+        injectNotifStyles();
+        if (notifEl) { updateNotif(); return; }
+        notifEl = document.createElement("div");
+        notifEl.id = "spotdl-notif";
+        notifEl.style.cssText = "position:fixed;bottom:100px;right:8px;z-index:9999;display:flex;align-items:center;gap:12px;padding:14px 22px;border-radius:12px;background:rgba(18,18,18,0.92);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.5);backdrop-filter:blur(16px);color:#fff;font-size:14px;font-weight:500;min-width:220px;max-width:340px;animation:spotdl-notif-in 0.3s cubic-bezier(0.22,1,0.36,1) forwards;pointer-events:none";
+        var iconWrap = document.createElement("div");
+        iconWrap.id = "spotdl-notif-icon";
+        iconWrap.style.cssText = "flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px";
+        var textEl = document.createElement("span");
+        textEl.id = "spotdl-notif-text";
+        textEl.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
+        notifEl.appendChild(iconWrap);
+        notifEl.appendChild(textEl);
+        document.body.appendChild(notifEl);
+        updateNotif();
     }
 
-    function showDownloadModal(onCancel) {
-        if (!document.getElementById("spotdl-spin-style")) {
-            const style = document.createElement("style");
-            style.id = "spotdl-spin-style";
-            style.textContent = `
-                @keyframes spotdl-spin { to { transform: rotate(360deg) } }
-                @keyframes spotdl-rise {
-                    from { opacity: 0; transform: translateY(16px) }
-                    to   { opacity: 1; transform: translateY(0) }
-                }
-                @keyframes spotdl-fadein { from { opacity: 0 } to { opacity: 1 } }
-                #spotdl-modal-overlay { animation: spotdl-fadein 0.2s ease forwards }
-                #spotdl-modal-content { animation: spotdl-rise 0.35s cubic-bezier(0.22,1,0.36,1) forwards; will-change: transform, opacity }
-                #spotdl-spinner { will-change: transform }
-                #spotdl-cancel-btn:hover {
-                    background: rgba(255,255,255,0.1) !important;
-                    border-color: rgba(255,255,255,0.8) !important;
-                    box-shadow: 0 0 18px rgba(255,255,255,0.25), 0 0 6px rgba(255,255,255,0.4) !important;
-                }
-            `;
-            document.head.appendChild(style);
-        }
-
-        const overlay = document.createElement("div");
-        overlay.id = "spotdl-modal-overlay";
-        overlay.style.cssText = [
-            "position:fixed", "inset:0", "z-index:9999",
-            "display:flex", "align-items:center", "justify-content:center",
-            "background:rgba(0,0,0,0.82)",
-            "transition:opacity 0.2s ease",
-        ].join(";");
-
-        const content = document.createElement("div");
-        content.id = "spotdl-modal-content";
-        content.style.cssText = [
-            "display:flex", "flex-direction:column", "align-items:center", "gap:22px",
-        ].join(";");
-
-        const title = document.createElement("p");
-        title.textContent = "Downloading";
-        title.style.cssText = [
-            "margin:0",
-            "color:#fff",
-            "font-size:22px",
-            "font-weight:700",
-            "letter-spacing:-0.02em",
-        ].join(";");
-
-        const spinWrap = document.createElement("div");
-        spinWrap.style.cssText = [
-            "position:relative", "width:56px", "height:56px",
-            "box-shadow:0 0 28px rgba(255,255,255,0.22), 0 0 8px rgba(255,255,255,0.35)",
-            "border-radius:50%",
-        ].join(";");
-
-        const spinnerTrack = document.createElement("div");
-        spinnerTrack.style.cssText = [
-            "position:absolute", "inset:0",
-            "border-radius:50%",
-            "border:2.5px solid rgba(255,255,255,0.08)",
-        ].join(";");
-
-        const spinner = document.createElement("div");
-        spinner.id = "spotdl-spinner";
-        spinner.style.cssText = [
-            "position:absolute", "inset:0",
-            "border:2.5px solid transparent",
-            "border-top-color:#fff",
-            "border-radius:50%",
-            "animation:spotdl-spin 0.75s linear infinite",
-        ].join(";");
-
-        spinWrap.appendChild(spinnerTrack);
-        spinWrap.appendChild(spinner);
-
-        const label = document.createElement("p");
-        label.textContent = "Your track is on its way";
-        label.style.cssText = [
-            "margin:0",
-            "color:rgba(255,255,255,0.38)",
-            "font-size:13px",
-            "font-weight:400",
-        ].join(";");
-
-        const cancelBtn = document.createElement("button");
-        cancelBtn.id = "spotdl-cancel-btn";
-        cancelBtn.textContent = "Cancel";
-        cancelBtn.style.cssText = [
-            "margin-top:8px",
-            "padding:10px 32px",
-            "border-radius:20px",
-            "border:1px solid rgba(255,255,255,0.35)",
-            "background:transparent",
-            "color:#fff",
-            "font-size:13px",
-            "font-weight:600",
-            "cursor:pointer",
-            "letter-spacing:normal",
-            "box-shadow:0 0 10px rgba(255,255,255,0.1), 0 0 3px rgba(255,255,255,0.2)",
-            "transition:background 0.15s, border-color 0.15s, box-shadow 0.15s",
-        ].join(";");
-        cancelBtn.onclick = onCancel;
-
-        content.appendChild(title);
-        content.appendChild(spinWrap);
-        content.appendChild(label);
-        content.appendChild(cancelBtn);
-        overlay.appendChild(content);
-        document.body.appendChild(overlay);
+    function removeNotif() {
+        if (!notifEl) return;
+        notifEl.style.animation = "spotdl-notif-out 0.3s ease forwards";
+        var el = notifEl;
+        notifEl = null;
+        notifTimeout = null;
+        setTimeout(function() { el.remove(); }, 300);
     }
 
-    const menuItem = new Spicetify.ContextMenu.Item(
+    var menuItem = new Spicetify.ContextMenu.Item(
         "Download",
-        async (uris) => {
-            const trackId = uris[0].split(":").pop();
+        async function(uris) {
+            var trackId = uris[0].split(":").pop();
 
-            let data;
+            var trackName = "track";
             try {
-                const res = await fetch("http://127.0.0.1:27381/download?id=" + trackId);
+                var r = await Spicetify.GraphQL.Request(
+                    Spicetify.GraphQL.Definitions.getTrack,
+                    { uri: "spotify:track:" + trackId }
+                );
+                if (r && r.data && r.data.trackUnion && r.data.trackUnion.name) {
+                    trackName = r.data.trackUnion.name;
+                }
+            } catch (e) {}
+
+            var data;
+            try {
+                var res = await fetch("http://127.0.0.1:27382/download?id=" + trackId);
                 data = await res.json();
-            } catch {
-                Spicetify.showNotification("Download helper not running", true);
+            } catch (e) {
                 return;
             }
-
             if (data.status !== "started") return;
 
-            showDownloadModal(async () => {
-                clearInterval(pollInterval);
-                pollInterval = null;
-                await fetch("http://127.0.0.1:27381/cancel").catch(() => {});
-                hideDownloadModal();
-                Spicetify.showNotification("Download cancelled");
-            });
+            if (activeDownloads.has(trackId)) {
+                clearInterval(activeDownloads.get(trackId).poll);
+            }
 
-            pollInterval = setInterval(async () => {
+            activeDownloads.set(trackId, { name: trackName, status: "downloading", poll: null });
+            showNotif();
+
+            var poll = setInterval(async function() {
                 try {
-                    const res = await fetch("http://127.0.0.1:27381/status");
-                    const d = await res.json();
+                    var res = await fetch("http://127.0.0.1:27382/status?id=" + trackId);
+                    var d = await res.json();
                     if (d.status === "done") {
-                        clearInterval(pollInterval);
-                        pollInterval = null;
-                        hideDownloadModal();
-                        Spicetify.showNotification("Download complete!");
+                        clearInterval(poll);
+                        var dl = activeDownloads.get(trackId);
+                        if (dl) dl.status = "done";
+                        updateNotif();
+                        if (getActiveCount() === 0) {
+                            setTimeout(function() {
+                                var toRemove = [];
+                                activeDownloads.forEach(function(dl2, id) {
+                                    if (dl2.status === "done") toRemove.push(id);
+                                });
+                                toRemove.forEach(function(id) { activeDownloads.delete(id); });
+                            }, 3000);
+                        }
                     }
-                } catch {}
+                } catch (e) {}
             }, 2000);
+
+            var dl = activeDownloads.get(trackId);
+            if (dl) dl.poll = poll;
         },
-        (uris) => {
+        function(uris) {
             try {
                 return Spicetify.URI.fromString(uris[0]).type === Spicetify.URI.Type.TRACK;
-            } catch {
+            } catch (e) {
                 return false;
             }
         },

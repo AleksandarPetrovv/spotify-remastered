@@ -98,6 +98,9 @@ here is what each file does:
 
 - com.spotify-remastered.updater.plist: launchd agent that runs on login to keep spicetify applied after spotify updates itself.
 - spotify-remastered-updater.sh: the actual updater script run by the launchd agent.
+- com.spotify-remastered.download-helper.plist: launchd agent that listens for song download requests from spotify remastered.
+- download-helper.sh: the script that handles folder selection and runs spotdl when you download a song.
+- spotdl: the tool used to download songs from spotify.
 - spicetify-status.txt: stores whether spicetify was already on your mac before you installed spotify remastered. the uninstall script reads this to know whether to fully remove spicetify or just remove the theme and custom app.
 - prev-theme.txt: if this file exists it stores the name of your previous spicetify theme so it can be restored when you uninstall spotify remastered.
 - about-this-folder.txt: this file.

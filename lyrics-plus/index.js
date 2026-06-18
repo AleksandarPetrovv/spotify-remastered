@@ -935,8 +935,12 @@ class LyricsContainer extends react.Component {
 
     if (!tempState) return;
 
-    // Final safety check
+    // Final safety check. this.currentTrackUri is updated from song-change events
+    // and lags during rapid skips, which let a previous track's (esp. slow Genius)
+    // result paint over the new song. Also compare against the live player URI.
+    const livePlayerUri = Spicetify.Player?.data?.item?.uri;
     if (info.uri !== this.currentTrackUri) return;
+    if (livePlayerUri && info.uri !== livePlayerUri) return;
 
     let finalMode = mode;
     if (mode === -1) {

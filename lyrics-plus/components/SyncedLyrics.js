@@ -242,6 +242,11 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
     const lyricsId = useMemo(() => lyrics[0]?.text || "no-lyrics", [lyrics]);
 
     const activeLineIndex = useMemo(() => {
+        // Unsynced lyrics (e.g. Genius) have no startTime; without this guard the
+        // loop below matches the LAST line (position >= 0 always true) and the
+        // page jumps to the bottom on open. Keep it at the top instead.
+        const isSynced = lyricWithEmptyLines.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+        if (!isSynced) return 0;
         for (let i = lyricWithEmptyLines.length - 1; i > 0; i--) {
             const line = lyricWithEmptyLines[i];
             if (line && position >= (line.startTime || 0)) {
@@ -516,6 +521,11 @@ const lyricsId = useMemo(() => lyrics[0]?.text || "no-lyrics", [lyrics]);
 
 // Optimize active line calculation with memoization
 const activeLineIndex = useMemo(() => {
+	// Unsynced lyrics (e.g. Genius) have no startTime; without this guard the
+	// loop below matches the LAST line (position >= 0 always true) and the page
+	// jumps to the bottom on open. Keep it at the top instead.
+	const isSynced = padded.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+	if (!isSynced) return 0;
 	for (let i = padded.length - 1; i >= 0; i--) {
 		const line = padded[i];
 		if (line && position >= (line.startTime || 0)) {
@@ -546,6 +556,11 @@ useEffect(() => {
 	}
 }, [lyricsId, activeLineIndex]);
 
+    // Unsynced lyrics (Genius) render denser than synced tracks since lines have
+    // no timing-driven spacing. Add breathing room between them to match the feel
+    // of the synced tab.
+    const pageIsUnsynced = !padded.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+
     return react.createElement(
         "div",
         {
@@ -565,7 +580,7 @@ useEffect(() => {
                 ref = activeLineRef;
             }
 
-            const animationIndex = i - activeElementIndex;
+            const animationIndex = i - activeLineIndex;
 
             let className = "lyrics-lyricsContainer-LyricsLine";
             if (isActive) {
@@ -616,6 +631,7 @@ useEffect(() => {
                         "--position-index": animationIndex,
                         "--animation-index": (animationIndex < 0 ? 0 : animationIndex) + 1,
                         "--blur-index": Math.abs(animationIndex),
+                        ...(pageIsUnsynced ? { marginBottom: "0.7em" } : {}),
                     },
                     dir: "auto",
                     ref,

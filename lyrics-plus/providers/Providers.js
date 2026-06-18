@@ -145,6 +145,29 @@ const Providers = {
 
 		return result;
 	},
+	genius: async (info) => {
+		const result = {
+			uri: info.uri,
+			karaoke: null,
+			synced: null,
+			unsynced: null,
+			provider: "Genius",
+			copyright: null,
+		};
+
+		let data;
+		try {
+			data = await ProviderGenius.findLyrics(info);
+			if (data.error) return { error: data.error, uri: info.uri };
+		} catch {
+			return { error: "Genius: failed", uri: info.uri };
+		}
+
+		const unsynced = ProviderGenius.getUnsynced(data);
+		if (unsynced) result.unsynced = unsynced;
+
+		return result;
+	},
 	netease: async (info) => {
 		try {
 			const data = await ProviderNetease.findLyrics(info);

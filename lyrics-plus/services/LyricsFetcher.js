@@ -178,16 +178,16 @@ const LyricsFetcher = {
 
         for (const id of CONFIG.providersOrder) {
             const service = CONFIG.providers[id];
-            const spotifyVersion = Spicetify.Platform.version;
-            
-            if (spotifyVersion >= "1.2.31" && id === "genius") continue;
+
             if (!service.on) continue;
             if (mode !== -1 && !service.modes.includes(mode)) continue;
 
             let data;
             try {
-                // Timeout per provider (5s) to prevent slow providers from blocking
-                const PROVIDER_TIMEOUT = 5000;
+                // Timeout per provider to prevent slow providers from blocking.
+                // Genius makes two sequential CORS-proxy hops (search + page),
+                // so it needs a longer budget than direct-API providers.
+                const PROVIDER_TIMEOUT = id === "genius" ? 12000 : 5000;
                 data = await Promise.race([
                     Providers[id](trackInfo),
                     new Promise((_, reject) => 

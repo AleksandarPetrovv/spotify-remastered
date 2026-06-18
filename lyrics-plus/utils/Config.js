@@ -161,7 +161,7 @@ const CONFIG = {
     },
     providers: {
         lrclib: {
-            on: ConfigUtils.get("lyrics-plus:provider:lrclib:on", false),
+            on: ConfigUtils.get("lyrics-plus:provider:lrclib:on", true),
             desc: "Lyrics sourced from lrclib.net. Supports both synced and unsynced lyrics. LRCLIB is a free and open-source lyrics provider.",
             modes: [SYNCED, UNSYNCED],
         },
@@ -182,10 +182,15 @@ const CONFIG = {
             modes: [SYNCED, UNSYNCED],
         },
         netease: {
-            on: ConfigUtils.get("lyrics-plus:provider:netease:on", false),
+            on: ConfigUtils.get("lyrics-plus:provider:netease:on", true),
             desc: "Lyrics sourced from NetEase Cloud Music (网易云音乐). Excellent coverage for indie JP/KR/CN artists. Optional: paste a session Cookie from music.163.com below for better results.",
             token: localStorage.getItem("lyrics-plus:provider:netease:token") || "",
             modes: [SYNCED, UNSYNCED],
+        },
+        genius: {
+            on: ConfigUtils.get("lyrics-plus:provider:genius:on"),
+            desc: "Lyrics sourced from Genius. Unsynced only. No API key required.",
+            modes: [UNSYNCED],
         },
     },
     providersOrder: localStorage.getItem("lyrics-plus:services-order"),
@@ -207,20 +212,31 @@ try {
         localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
     }
 
+    // One-time: enable LRCLIB + Netease for existing installs.
+    // Both send proper CORS headers / aren't proxy-blocked, unlike Genius.
+    if (!localStorage.getItem("lyrics-plus:migration:lrclib-netease-on")) {
+        CONFIG.providers.lrclib.on = true;
+        CONFIG.providers.netease.on = true;
+        localStorage.setItem("lyrics-plus:provider:lrclib:on", "true");
+        localStorage.setItem("lyrics-plus:provider:netease:on", "true");
+        localStorage.setItem("lyrics-plus:migration:lrclib-netease-on", "true");
+    }
+
     const missing = Object.keys(CONFIG.providers).filter(p => !CONFIG.providersOrder.includes(p));
     if (missing.length > 0) {
         CONFIG.providersOrder.push(...missing);
         localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
     }
 } catch {
-    CONFIG.providersOrder = ["spotify", "local", "musixmatch", "netease", "lrclib"];
+    CONFIG.providersOrder = ["spotify", "local", "musixmatch", "genius", "netease", "lrclib"];
 
     const defaultProviderState = {
         spotify: true,
         local: true,
         musixmatch: true,
-        netease: false,
-        lrclib: false,
+        genius: true,
+        netease: true,
+        lrclib: true,
     };
     Object.keys(CONFIG.providers).forEach(p => {
         const on = defaultProviderState[p] ?? false;

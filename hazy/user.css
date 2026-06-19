@@ -126,21 +126,35 @@ TRANSPARENT WINDOW CONTROLS
   padding-top: max(var(--topbar-height, 68px) / var(--zoom, 1), 8px);
 }
 
+/* Extend the real album-art background into the native window-control corner.
+   Same image/scale/blur as .Root__top-container::before, clipped to the corner
+   so it lines up seamlessly instead of being a separate patch. */
 html:not(.spotify__container--is-desktop.fullscreen)
   body.windows:not(.video-full-window)::after {
   content: "";
-  position: absolute;
-  right: 0;
+  position: fixed;
+  inset: 0;
   z-index: 999;
-  backdrop-filter: brightness(2.12);
-  width: calc(135px / var(--zoom, 1));
-  height: calc(var(--topbar-height, 40px) / var(--zoom, 1));
+  pointer-events: none;
+  background-image: var(--image_url);
+  background-repeat: no-repeat;
+  background-size: cover;
+  background-position: center center;
+  filter: blur(var(--blur)) contrast(var(--cont)) saturate(var(--satu))
+    brightness(calc(var(--bright) * 1.1));
+  opacity: 1;
+  clip-path: inset(
+    0 0 calc(100% - var(--topbar-height, 40px) / var(--zoom, 1))
+      calc(100% - 135px / var(--zoom, 1))
+  );
 }
 
 html:not(.spotify__container--is-desktop.fullscreen)
   body.global-nav-centered.windows:not(.video-full-window)::after {
-  height: calc(var(--topbar-height, 64px) / var(--zoom, 1));
-  top: 0;
+  clip-path: inset(
+    0 0 calc(100% - var(--topbar-height, 64px) / var(--zoom, 1))
+      calc(100% - 135px / var(--zoom, 1))
+  );
 }
 
 /* Hide empty window controls from DOM to fix spacing */
@@ -1046,7 +1060,7 @@ TOP BAR
 .main-userWidget-boxCondensed:hover,
 .main-userWidget-boxCondensed[data-context-menu-open="true"],
 .main-topBar-whatsNewFeed {
-  background-color: var(--backdrop) !important;
+  background-color: transparent !important;
 }
 
 /*----------
@@ -1130,13 +1144,31 @@ PLAY BUTTONS
 .Root__globalNav button,
 .Root__globalNav .main-globalNav-link-icon,
 .main-topBar-historyButtons .main-topBar-button {
-  background-color: var(--backdrop);
-  border-radius: 6px;
+  background-color: transparent !important;
+  border-radius: var(--button-border);
 }
 
 .WtC1lGbmQRplD6JBhNFU {
   border-radius: var(--button-border);
-  background-color: var(--backdrop);
+  background-color: transparent !important;
+}
+
+/* Subtle hover feedback now that icons have no background */
+.Root__globalNav button:hover,
+.main-topBar-historyButtons .main-topBar-button:hover,
+.main-globalNav-searchContainer button:hover,
+.main-topBar-buddyFeed:hover,
+.main-userWidget-boxCondensed:hover {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+/* Even spacing between top-bar icons (left + right clusters) */
+.main-globalNav-historyButtonsContainer,
+.main-actionButtons,
+.main-globalNav-icons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .main-globalNav-buddyFeed,
@@ -1298,7 +1330,7 @@ div.main-globalNav-searchInputSection:has(
 
 /* For buttons inside the Search Container */
 .main-globalNav-searchContainer button {
-  background-color: var(--backdrop) !important;
+  background-color: transparent !important;
   border-radius: var(--button-border) !important;
   transition: 0.2s cubic-bezier(0, 0, 0.2, 1);
 }
@@ -3060,7 +3092,8 @@ PERFORMANCE: WINDOW CONTROLS
 
 html:not(.spotify__container--is-desktop.fullscreen)
   body.windows:not(.video-full-window)::after {
-  backdrop-filter: brightness(1.5) !important;
+  background-color: transparent !important;
+  backdrop-filter: none !important;
 }
 
 /*-------------------

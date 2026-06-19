@@ -26,7 +26,7 @@ const CacheManager = {
                 const data = JSON.parse(persisted);
                 const count = await IDBCache.bulkImport(data);
                 if (count > 0) {
-                    console.log(`[Cache] Migrated ${count} entries from localStorage to IndexedDB`);
+
                     localStorage.removeItem(this._persistKey);
                     localStorage.setItem('lyrics-plus:idb-migrated', 'true');
                 }
@@ -171,7 +171,7 @@ const CacheManager = {
         this._l1Cache.clear();
         await this._migrate();
         await IDBCache.clear();
-        console.log('[Cache] All cache cleared');
+
     },
 
     /**

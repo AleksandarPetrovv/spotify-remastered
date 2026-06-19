@@ -22,7 +22,7 @@ const ProviderMusixmatch = (() => {
 			if (newToken) {
 				CONFIG.providers.musixmatch.token = newToken;
 				localStorage.setItem("lyrics-plus:provider:musixmatch:token", newToken);
-				console.log("[Lyrics+] Musixmatch token auto-refreshed successfully:", newToken);
+
 				return newToken;
 			}
 		} catch (e) {
@@ -89,6 +89,18 @@ const ProviderMusixmatch = (() => {
 				error: "Unfortunately we're not authorized to show these lyrics.",
 				uri: info.uri,
 			};
+		}
+
+		// Musixmatch fuzzy-matches by title/artist/duration when it can't confirm a
+		// track against Spotify's catalog, and these fuzzy matches return another
+		// song's lyrics_body while still echoing the requested title. A genuine
+		// match echoes the requested Spotify id; a fuzzy fallback returns it empty.
+		// Only trust results whose matched Spotify id equals what we asked for.
+		const matchedTrack = body["matcher.track.get"]?.message?.body?.track;
+		const reqId = info.uri?.split(":").pop();
+		if (reqId && matchedTrack && matchedTrack.track_spotify_id !== reqId) {
+
+			return { error: "Musixmatch: unverified match (spotify id mismatch)", uri: info.uri };
 		}
 
 		return body;

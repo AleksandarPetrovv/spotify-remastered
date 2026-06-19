@@ -12,7 +12,7 @@ class RequestQueue {
     add(requestFn, priority = false, key = null) {
         // Deduplication: If same key is already pending, return existing promise
         if (key && this.pendingPromises.has(key)) {
-            console.log(`[Queue] Deduped request: ${key}`);
+
             return this.pendingPromises.get(key);
         }
 
@@ -37,7 +37,7 @@ class RequestQueue {
         if (index > 0) {
             const [item] = this.queue.splice(index, 1);
             this.queue.unshift(item);
-            console.log(`[Queue] Promoted task: ${key}`);
+
         }
     }
 
@@ -49,7 +49,6 @@ class RequestQueue {
             if (item.key) this.pendingPromises.delete(item.key);
         });
         this.queue = [];
-        if (cancelled > 0) console.log(`[Queue] Cancelled ${cancelled} pending requests`);
         return cancelled;
     }
 
@@ -116,7 +115,7 @@ const GeminiClient = {
         // If same message within throttle window, suppress
         if (this.lastNotificationMessage === message && 
             (now - this.lastNotificationTime) < throttleWindow) {
-            console.log(`[Lyrics+] Suppressed duplicate notification: ${message.substring(0, 50)}...`);
+
             return false;
         }
         
@@ -230,7 +229,7 @@ const GeminiClient = {
                 if (result[i] === undefined) result[i] = '';
             }
             if (result.length > 0) {
-                console.log(`[Lyrics+] Parsed ${result.length} lines via Compact Tags`);
+
                 return { vi: result, phonetic: result.join('\n') };
             }
         }
@@ -256,7 +255,7 @@ const GeminiClient = {
             }
             
             if (result.length > 0) {
-                console.log(`[Lyrics+] Parsed ${result.length} lines via Numbered List`);
+
                 return { vi: result, phonetic: result.join('\n') };
             }
         }
@@ -316,7 +315,7 @@ const GeminiClient = {
         }
 
         if (Array.isArray(arr)) {
-            console.log(`[Lyrics+] Parsed ${arr.length} lines via JSON`);
+
             const stringArr = arr.map(x => (x == null ? "" : String(x)));
             return { vi: stringArr, phonetic: stringArr.join('\n') };
         }
@@ -343,7 +342,7 @@ const GeminiClient = {
                     }
                 }
                 if (stringArr.length > 0) {
-                    console.log(`[Lyrics+] Recovered ${stringArr.length} lines from malformed JSON via regex`);
+
                     return { vi: stringArr, phonetic: stringArr.join('\n') };
                 }
             }
@@ -1004,7 +1003,7 @@ const GeminiClient = {
             // Retry with fallback prompt if first attempt failed
             const isClientError = error.status === 401 || error.status === 403 || error.status === 404;
             if (error.name !== 'AbortError' && !_isRetry && !isClientError) {
-                console.log('[Lyrics+] Retrying with fallback minimal prompt...');
+
                 return this.callGemini({
                     apiKey, artist, title, text,
                     styleKey: 'literal_study', pronounKey: 'default',

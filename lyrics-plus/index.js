@@ -108,9 +108,7 @@ class LyricsContainer extends react.Component {
   }
 
   async fetchVideoBackgroundWithLyrics(track, lyrics = []) {
-    console.log(
-      `[LyricsPlus] fetchVideoBackgroundWithLyrics called for: ${track?.metadata?.title}`,
-    );
+
     const info = this.infoFromTrack(track);
     if (!info) {
       console.warn("[LyricsPlus] infoFromTrack returned null");
@@ -132,14 +130,12 @@ class LyricsContainer extends react.Component {
 
     // Delegate to VideoManager (ivLyrics Client-Only)
     const videoData = await VideoManager.fetchVideoForTrack(info);
-    console.log("[LyricsPlus] VideoManager returned:", videoData);
+
 
     // RACE CONDITION FIX: Check if a newer request has started
     // If _lastVideoRequestUri was overwritten by a newer request, ignore this stale response
     if (this._lastVideoRequestUri !== info.uri) {
-      console.log(
-        `[LyricsPlus] Ignored stale video response for: ${info.title}`,
-      );
+
       return; // Don't update state with stale data
     }
 
@@ -808,7 +804,7 @@ class LyricsContainer extends react.Component {
         l1Cached.unsynced?.length > 0 ||
         l1Cached.genius?.length > 0)
     ) {
-      console.log(`[Lyrics+] L1 Cache HIT for: ${info.uri.split(":").pop()}`);
+
       tempState = { ...l1Cached, isCached };
       if (l1Cached?.mode) {
         this.state.explicitMode = l1Cached.mode;
@@ -834,9 +830,7 @@ class LyricsContainer extends react.Component {
       if (hasContent) {
         if (hasSynced) {
           // Level 3: Max quality, use cache
-          console.log(
-            `[Lyrics+] L2 Cache HIT (Synced) for: ${info.uri.split(":").pop()}`,
-          );
+
           CacheManager.set(info.uri, l2Cached, false); // Promote to L1
           tempState = { ...l2Cached, isCached: true };
         } else if (hasUnsynced || hasGenius) {
@@ -845,9 +839,7 @@ class LyricsContainer extends react.Component {
 
           if (upgradeAttempted) {
             // Already tried this session, use cached result
-            console.log(
-              `[Lyrics+] L2 Cache HIT (Unsynced - Upgrade already attempted) for: ${info.uri.split(":").pop()}`,
-            );
+
             CacheManager.set(info.uri, l2Cached, false); // Promote to L1
             tempState = { ...l2Cached, isCached: true };
           } else {
@@ -858,18 +850,14 @@ class LyricsContainer extends react.Component {
             );
 
             if (enabledSyncProviders.length > 0) {
-              console.log(
-                `[Lyrics+] Smart Cache: Attempting upgrade from Unsynced (${l2Cached.provider})`,
-              );
+
               shouldFetch = true;
               // Mark as attempted BEFORE fetching to prevent loops
               l2Cached._upgradeAttempted = true;
               CacheManager.set(info.uri, l2Cached, true); // Update L2 with flag
             } else {
               // No better providers, use cache
-              console.log(
-                `[Lyrics+] L2 Cache HIT (Unsynced - No sync providers) for: ${info.uri.split(":").pop()}`,
-              );
+
               CacheManager.set(info.uri, l2Cached, false);
               tempState = { ...l2Cached, isCached: true };
             }
@@ -882,7 +870,7 @@ class LyricsContainer extends react.Component {
 
       // === Network Fetch ===
       if (shouldFetch) {
-        console.log(`[Lyrics+] Fetching from network...`);
+
         const currentMode = this.getCurrentMode();
         this.lastModeBeforeLoading = currentMode !== -1 ? currentMode : SYNCED;
         this.setState({ ...emptyState, isLoading: true, isCached: false });
@@ -913,6 +901,18 @@ class LyricsContainer extends react.Component {
           this.setState({ error: "Failed to load lyrics", isLoading: false });
           return;
         }
+      }
+    }
+
+    // A cached entry's URI key can hold lyrics fetched for a different song when
+    // Spotify's queue reports a track's URI and metadata out of sync during the
+    // next-track prefetch. The result is stamped with the title it was fetched
+    // for; if that doesn't match the current track, drop it and refetch.
+    if (tempState?.reqTitle && info.title) {
+      const norm = (s) => String(s).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      if (norm(tempState.reqTitle) !== norm(info.title)) {
+        await CacheManager.delete(info.uri);
+        return this.fetchLyrics(track, mode, true);
       }
     }
 
@@ -984,15 +984,7 @@ class LyricsContainer extends react.Component {
       }
 
       //Debug logging
-      if (window.lyricsPlusDebug) {
-        console.log("fetchLyrics language detection:", {
-          uri: tempState.uri,
-          defaultLanguage,
-          hasSynced: !!tempState.synced,
-          hasUnsynced: !!tempState.unsynced,
-          hasGenius: !!tempState.genius,
-        });
-      }
+
 
       // Reset state and apply, preserving cached translations if any
       // Preserve existing Gemini translations if available to prevent UI flicker
@@ -1160,16 +1152,7 @@ class LyricsContainer extends react.Component {
     }
 
     // Debug logging for troubleshooting
-    if (window.lyricsPlusDebug) {
-      console.log("Language detection debug:", {
-        originalLanguage,
-        friendlyLanguage,
-        lyricsLength: lyrics?.length,
-        firstLineText: lyrics?.[0]?.text?.substring(0, 50),
-        languageOverride: CONFIG.visual["translate:detect-language-override"],
-        stateLanguage: this.state.language,
-      });
-    }
+
 
     // For Gemini mode, use generic keys if no specific language detected
     const provider = CONFIG.visual["translate:translated-lyrics-source"];
@@ -1264,9 +1247,7 @@ class LyricsContainer extends react.Component {
       // Clear cached results for this URI to force re-fetch with new settings
       // Old translation continues to display via currentLyrics until new arrives
       this._dmResults[currentUri] = { mode1: null, mode2: null };
-      console.log(
-        `[Lyrics+] Settings changed (${this._lastStyleKey}/${this._lastPronounKey} → ${currentStyleKey}/${currentPronounKey}), re-fetching...`,
-      );
+
     }
 
     // Update tracking for next call
@@ -1422,9 +1403,7 @@ class LyricsContainer extends react.Component {
                   },
                 });
               }
-              console.log(
-                `[Lyrics+] Pre-translating next: ${nextInfo.artist} - ${nextInfo.title}`,
-              );
+
             }
           }
         }
@@ -1521,15 +1500,7 @@ class LyricsContainer extends react.Component {
     const { mode1: cachedMode1, mode2: cachedMode2 } = getResults();
 
     // Debug logging for cache check
-    if (window.lyricsPlusDebug) {
-      console.log("[Lyrics+] lyricsSource debug:", {
-        displayMode1,
-        displayMode2,
-        cachedMode1: !!cachedMode1,
-        cachedMode2: !!cachedMode2,
-        currentUri,
-      });
-    }
+
 
     // If we have cached results, show them immediately
     // IMPORTANT: Only return early if ALL active modes are cached
@@ -1621,13 +1592,13 @@ class LyricsContainer extends react.Component {
     Promise.allSettled([promise1, promise2]).then(() => {
       // Only save if still on the same track
       if (this.state.uri !== uri) {
-        console.log(`[Lyrics+] Skip cache - track changed`);
+
         return;
       }
 
       const currentLyrics = this.state.currentLyrics;
       if (!currentLyrics || currentLyrics.length === 0) {
-        console.log(`[Lyrics+] Skip cache - no currentLyrics`);
+
         return;
       }
 
@@ -1667,9 +1638,7 @@ class LyricsContainer extends react.Component {
         language: this.state.language,
       };
       this.saveLocalLyrics(uri, fullData);
-      console.log(
-        `[Lyrics+] Auto-cached lyrics (${translatedCount} lines) for: ${uri.split(":").pop()}`,
-      );
+
     });
   }
 
@@ -2042,20 +2011,10 @@ class LyricsContainer extends react.Component {
 
   async getTraditionalConversion(lyricsState, lyrics, language, displayMode) {
     // Debug logging
-    if (window.lyricsPlusDebug) {
-      console.log("[Lyrics+] getTraditionalConversion called:", {
-        language,
-        displayMode,
-        lyricsCount: lyrics?.length,
-        uri: lyricsState?.uri?.split(":").pop(),
-      });
-    }
+
 
     if (!Array.isArray(lyrics)) {
-      if (window.lyricsPlusDebug)
-        console.log(
-          "[Lyrics+] getTraditionalConversion - REJECTED: lyrics is not array",
-        );
+
       throw new Error("Invalid lyrics format for conversion.");
     }
 
@@ -2083,10 +2042,7 @@ class LyricsContainer extends react.Component {
     // Await Cache
     const cached = await CacheManager.get(cacheKey);
     if (cached) {
-      if (window.lyricsPlusDebug)
-        console.log(
-          "[Lyrics+] getTraditionalConversion - CACHE HIT, returning cached",
-        );
+
       return mergeTiming(cached);
     }
 
@@ -2094,17 +2050,11 @@ class LyricsContainer extends react.Component {
     this._inflightTrad = this._inflightTrad || new Map();
     const inflightKey = cacheKey;
     if (this._inflightTrad.has(inflightKey)) {
-      if (window.lyricsPlusDebug)
-        console.log(
-          "[Lyrics+] getTraditionalConversion - INFLIGHT HIT, waiting for existing request",
-        );
+
       return this._inflightTrad.get(inflightKey);
     }
 
-    if (window.lyricsPlusDebug)
-      console.log(
-        "[Lyrics+] getTraditionalConversion - Proceeding to translateLyrics",
-      );
+
 
     // Execution Promise
     const executionPromise = (async () => {
@@ -2165,12 +2115,7 @@ class LyricsContainer extends react.Component {
     if (provider === "geminiVi") {
       // If we have a cached language in state, use it
       if (this.state.language) {
-        if (window.lyricsPlusDebug) {
-          console.log(
-            "Gemini mode - Using cached language:",
-            this.state.language,
-          );
-        }
+
         return this.state.language;
       }
 
@@ -2178,13 +2123,7 @@ class LyricsContainer extends react.Component {
       const detectedLanguage = Utils.detectLanguage(lyrics);
 
       // Debug logging
-      if (window.lyricsPlusDebug) {
-        console.log("Gemini mode - Language detection result:", {
-          detectedLanguage,
-          lyricsLength: lyrics?.length,
-          firstLineText: lyrics?.[0]?.text?.substring(0, 50),
-        });
-      }
+
 
       return detectedLanguage;
     }
@@ -2194,23 +2133,13 @@ class LyricsContainer extends react.Component {
       const overrideLanguage =
         CONFIG.visual["translate:detect-language-override"];
       // Debug logging
-      if (window.lyricsPlusDebug) {
-        console.log(
-          "Traditional mode - Using language override:",
-          overrideLanguage,
-        );
-      }
+
       return overrideLanguage;
     }
 
     // If we have a cached language in state, use it
     if (this.state.language) {
-      if (window.lyricsPlusDebug) {
-        console.log(
-          "Traditional mode - Using cached language:",
-          this.state.language,
-        );
-      }
+
       return this.state.language;
     }
 
@@ -2218,26 +2147,14 @@ class LyricsContainer extends react.Component {
     const detectedLanguage = Utils.detectLanguage(lyrics);
 
     // Debug logging
-    if (window.lyricsPlusDebug) {
-      console.log("Kuromoji mode - Language detection result:", {
-        detectedLanguage,
-        lyricsLength: lyrics?.length,
-        firstLineText: lyrics?.[0]?.text?.substring(0, 50),
-      });
-    }
+
 
     return detectedLanguage;
   }
 
   async translateLyrics(language, lyrics, targetConvert) {
     // Debug logging
-    if (window.lyricsPlusDebug) {
-      console.log("[Lyrics+] translateLyrics called:", {
-        language,
-        targetConvert,
-        lyricsCount: lyrics?.length,
-      });
-    }
+
 
     if (
       !language ||
@@ -2810,9 +2727,7 @@ class LyricsContainer extends react.Component {
     // Only pre-translate if current song is long enough (>45s) and has played for a bit (>5s)
     if (duration < 45000 || progress < 5000) return;
 
-    console.log(
-      `[Lyrics+] Pre-translate: starting for ${nextInfo.artist} - ${nextInfo.title}`,
-    );
+
     this.pretranslatedUri = nextInfo.uri;
 
     // 1. Check/Fetch Raw Lyrics (without setting state)
@@ -2836,11 +2751,9 @@ class LyricsContainer extends react.Component {
       const cached = await CacheManager.get(nextInfo.uri);
       if (cached && hasLyricsContent(cached)) {
         lyricsData = cached;
-        console.log(`[Lyrics+] Pre-translate: cache HIT with valid lyrics`);
+
       } else if (cached) {
-        console.log(
-          `[Lyrics+] Pre-translate: cache HIT but stale (no lyrics content), treating as MISS`,
-        );
+
       }
     } catch (e) {
       console.warn(`[Lyrics+] Pre-translate: cache lookup failed:`, e);
@@ -2848,16 +2761,14 @@ class LyricsContainer extends react.Component {
 
     if (!lyricsData) {
       // Fetch from network (same as fetchLyrics)
-      console.log(`[Lyrics+] Pre-translate: fetching lyrics from network...`);
+
       try {
         lyricsData = await this.tryServices(nextInfo, -1, {
           skipStaleCheck: true,
         });
         if (lyricsData?.provider) {
           CacheManager.set(nextInfo.uri, lyricsData);
-          console.log(
-            `[Lyrics+] Pre-translate: lyrics fetched from ${lyricsData.provider}`,
-          );
+
         }
       } catch (e) {
         console.warn("[Lyrics+] Pre-translate: lyrics fetch failed:", e);
@@ -2867,9 +2778,7 @@ class LyricsContainer extends react.Component {
     }
 
     if (!lyricsData) {
-      console.log(
-        `[Lyrics+] Pre-translate: no lyrics data available, aborting`,
-      );
+
       this.pretranslatedUri = null;
       return;
     }
@@ -2881,7 +2790,7 @@ class LyricsContainer extends react.Component {
       !lyricsToTranslate ||
       (Array.isArray(lyricsToTranslate) && lyricsToTranslate.length === 0)
     ) {
-      console.log(`[Lyrics+] Pre-translate: no translatable lyrics found`);
+
       return;
     }
 
@@ -2919,9 +2828,7 @@ class LyricsContainer extends react.Component {
     const triggerTranslation = async (mode) => {
       if (!mode || mode === "none") return;
       if (String(mode).startsWith("gemini")) {
-        console.log(
-          `[Lyrics+] Pre-translate: triggering ${mode} translation (${lyricsToTranslate.length} lines)`,
-        );
+
         // Silent translation in background
         await this.getGeminiTranslation(
           lyricsStateForTranslation,
@@ -2972,10 +2879,7 @@ class LyricsContainer extends react.Component {
         "lyrics-plus:debug",
         window.lyricsPlusDebug.toString(),
       );
-      console.log(
-        "Lyrics Plus debug mode:",
-        window.lyricsPlusDebug ? "ON" : "OFF",
-      );
+
     };
 
     this.onQueueChange = async ({ data: queue }) => {
@@ -3729,18 +3633,7 @@ class LyricsContainer extends react.Component {
         (() => {
           const hasLyrics =
             this.state.synced || this.state.unsynced || this.state.genius;
-          if (window.lyricsPlusDebug) {
-            console.log("Reset button debug:", {
-              hasLyrics,
-              synced: !!this.state.synced,
-              unsynced: !!this.state.unsynced,
-              genius: !!this.state.genius,
-              romaji: !!this.state.romaji,
-              furigana: !!this.state.furigana,
-              musixmatchTranslation: !!this.state.musixmatchTranslation,
-              neteaseTranslation: !!this.state.neteaseTranslation,
-            });
-          }
+
           return hasLyrics;
         })() &&
           react.createElement(
@@ -3762,11 +3655,7 @@ class LyricsContainer extends react.Component {
                     (m) => m && m !== "none",
                   );
 
-                  console.log(
-                    `[Lyrics+] Clearing cache for modes:`,
-                    modesToClear,
-                    `(modeKey: ${modeKey})`,
-                  );
+
                   this.resetTranslationCache(
                     this.currentTrackUri,
                     modesToClear.length > 0 ? modesToClear : null,

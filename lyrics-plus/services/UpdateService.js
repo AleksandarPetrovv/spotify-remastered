@@ -41,12 +41,12 @@ const UpdateService = {
                 if (silent) {
                     const skippedVersions = JSON.parse(localStorage.getItem("lyrics-plus:skipped-versions") || "[]");
                     if (skippedVersions.includes(data.version)) {
-                        console.log(`[Lyrics+] Skipping update notification for v${data.version} (user skipped)`);
+
                         return null;
                     }
                 }
 
-                console.log(`[Lyrics+] New version available: ${data.version} (current: ${this.CURRENT_VERSION})`);
+
                 this.showUpdateNotification(data.version, data.changelog);
                 return data;
             }

@@ -26,7 +26,9 @@ const Providers = {
 		const lines = lyrics.lines;
 		if (lyrics.syncType === "LINE_SYNCED") {
 			result.synced = lines.map((line) => ({
-				startTime: line.startTimeMs,
+				// Spotify's API returns startTimeMs as a string; coerce to a number
+				// so synced-detection (typeof === "number") works downstream.
+				startTime: Number(line.startTimeMs),
 				text: line.words,
 			}));
 			result.unsynced = result.synced;

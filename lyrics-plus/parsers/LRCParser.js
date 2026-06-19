@@ -12,7 +12,7 @@ const LRCParser = {
             return { synced: null, unsynced: [], karaoke: null };
         }
 
-        console.log("[Lyrics+] Parsing local lyrics file...");
+
         // Remove metadata tags [ti:...] [ar:...]
         const rawLines = lyrics.replaceAll(/\[[a-zA-Z]+:.+\]/g, "").trim();
         // Handle newlines for both Windows (\r\n) and Unix (\n), remove empty lines
@@ -24,7 +24,7 @@ const LRCParser = {
             return !isMetadata;
         });
 
-        console.log(`[Lyrics+] Found ${lines.length} non-empty lines`);
+
 
         const syncedTimestamp = /\[([0-9:.]+)\]/;
         const karaokeTimestamp = /<([0-9:.]+)> /;

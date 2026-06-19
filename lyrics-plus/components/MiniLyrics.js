@@ -309,7 +309,7 @@
 			}
 		}
 		startPiPPolling();
-		console.log("[Lyrics+] PiP MiniLyrics: initialized");
+
 	}
 
 	function startPiPPolling() {
@@ -332,7 +332,7 @@
 				}
 			} else if (pipWindow) {
 				// Window previously existed but is now gone
-				console.log("[Lyrics+] PiP MiniLyrics: Detected window closure via polling");
+
 				cleanupPiP();
 			}
 		}
@@ -344,7 +344,7 @@
 		cleanupPiP(true); // Pass true to skip animation restore during window swap
 		pipWindow = win;
 		pipDoc = win.document;
-		console.log("[Lyrics+] PiP MiniLyrics: attaching to PiP window");
+
 
 		injectStyles(pipDoc);
 		// Force apply saved font size on new window
@@ -373,7 +373,7 @@
 		// Multiple fallback events to catch window close
 		const onClose = () => {
 			if (pipWindow === win) {
-				console.log("[Lyrics+] PiP MiniLyrics: Detected window closure via event");
+
 				cleanupPiP();
 			}
 		};
@@ -462,7 +462,7 @@
 			}
 		});
 
-		console.log("[Lyrics+] PiP MiniLyrics: lyrics panel created");
+
 	}
 
 	// ── Settings Panel Toggle Injection ───────────────────────────────────
@@ -607,7 +607,7 @@
 			lyricsLabel.after(sizeRow);
 		}
 
-		console.log("[Lyrics+] PiP MiniLyrics: settings toggle injected");
+
 	}
 
 	// ── Update Loop ───────────────────────────────────────────────────────
@@ -864,7 +864,7 @@
 				// The Chromium compositor corruption from documentPictureInPicture
 				// is at the process level — no CSS/DOM/React fix works.
 				// location.reload() reloads the web view without killing Spotify.
-				console.log("[Lyrics+] PiP closed: Reloading web view to fix Chromium animation corruption");
+
 				location.reload();
 			}, 500);
 		}

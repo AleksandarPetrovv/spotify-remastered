@@ -17,4 +17,4 @@ window.LyricsPlus.register = function(name, module) {
     window[name] = module;
 };
 
-console.log('[LyricsPlus] Namespace created');
+

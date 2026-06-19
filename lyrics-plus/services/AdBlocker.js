@@ -431,7 +431,7 @@
             return new OriginalPlayer(element, mergedConfig);
         };
         window.YT.Player.__lyricsPlusAdBlockWrapped = true;
-        console.log(`${logPrefix} YouTube Player API Patched`);
+
     };
 
     const initialize = () => {
@@ -448,7 +448,7 @@
         patchWindowOpen();
         patchYouTubePlayer();
         observeDOM();
-        console.log(`${logPrefix} Initialized`);
+
     };
 
     if (document.body) {

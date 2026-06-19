@@ -149,9 +149,7 @@ const Utils = {
 	detectLanguage(lyrics) {
 		if (!Array.isArray(lyrics) || lyrics.length === 0) {
 			// Debug logging
-			if (window.lyricsPlusDebug) {
-				console.log("detectLanguage: No lyrics provided", { lyrics });
-			}
+
 			return null;
 		}
 
@@ -180,12 +178,7 @@ const Utils = {
 
 		if (!cjkMatch) {
 			// Debug logging for non-CJK languages
-			if (window.lyricsPlusDebug) {
-				console.log("detectLanguage: No CJK characters found", {
-					rawLyrics: rawLyrics.substring(0, 100),
-					lyricsLength: lyrics.length
-				});
-			}
+
 			// Return null instead of undefined for non-CJK languages
 			this._cacheLanguageResult(cacheKey, null);
 			return null;

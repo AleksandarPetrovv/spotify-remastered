@@ -31,7 +31,7 @@ const IDBCache = {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this._storeName)) {
                     db.createObjectStore(this._storeName, { keyPath: 'key' });
-                    console.log('[IDBCache] Created object store:', this._storeName);
+
                 }
             };
         });
@@ -145,7 +145,7 @@ const IDBCache = {
                 const request = store.clear();
 
                 request.onsuccess = () => {
-                    console.log('[IDBCache] Cleared');
+
                     resolve(true);
                 };
                 request.onerror = () => resolve(false);
@@ -179,7 +179,7 @@ const IDBCache = {
 
             return new Promise((resolve) => {
                 tx.oncomplete = () => {
-                    console.log(`[IDBCache] Imported ${count} items from localStorage`);
+
                     resolve(count);
                 };
                 tx.onerror = () => resolve(0);

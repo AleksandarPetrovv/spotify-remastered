@@ -227,6 +227,15 @@ try {
         CONFIG.providersOrder.push(...missing);
         localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
     }
+
+    // Force Spotify to be the #1 provider. Native Spotify lyrics are synced and
+    // the most reliable, so they should always be tried first. This runs once
+    // per install to fix existing saved orders that put other providers ahead.
+    if (!localStorage.getItem("lyrics-plus:migration:spotify-first")) {
+        CONFIG.providersOrder = ["spotify", ...CONFIG.providersOrder.filter(p => p !== "spotify")];
+        localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
+        localStorage.setItem("lyrics-plus:migration:spotify-first", "true");
+    }
 } catch {
     CONFIG.providersOrder = ["spotify", "local", "musixmatch", "genius", "netease", "lrclib"];
 

@@ -245,7 +245,7 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
         // Unsynced lyrics (e.g. Genius) have no startTime; without this guard the
         // loop below matches the LAST line (position >= 0 always true) and the
         // page jumps to the bottom on open. Keep it at the top instead.
-        const isSynced = lyricWithEmptyLines.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+        const isSynced = lyricWithEmptyLines.some((l) => Number(l.startTime) > 0);
         if (!isSynced) return 0;
         for (let i = lyricWithEmptyLines.length - 1; i > 0; i--) {
             const line = lyricWithEmptyLines[i];
@@ -524,7 +524,7 @@ const activeLineIndex = useMemo(() => {
 	// Unsynced lyrics (e.g. Genius) have no startTime; without this guard the
 	// loop below matches the LAST line (position >= 0 always true) and the page
 	// jumps to the bottom on open. Keep it at the top instead.
-	const isSynced = padded.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+	const isSynced = padded.some((l) => Number(l.startTime) > 0);
 	if (!isSynced) return 0;
 	for (let i = padded.length - 1; i >= 0; i--) {
 		const line = padded[i];
@@ -559,7 +559,7 @@ useEffect(() => {
     // Unsynced lyrics (Genius) render denser than synced tracks since lines have
     // no timing-driven spacing. Add breathing room between them to match the feel
     // of the synced tab.
-    const pageIsUnsynced = !padded.some((l) => typeof l.startTime === "number" && l.startTime > 0);
+    const pageIsUnsynced = !padded.some((l) => Number(l.startTime) > 0);
 
     return react.createElement(
         "div",

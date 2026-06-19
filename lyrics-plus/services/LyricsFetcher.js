@@ -210,7 +210,7 @@ const LyricsFetcher = {
             // Prepare result function to avoid repetition
             const prepareResult = (resultData) => {
                  // Clone to avoid mutating original source if cached/shared
-                const finalData = { ...resultData, uri: trackInfo.uri };
+                const finalData = { ...resultData, uri: trackInfo.uri, reqTitle: trackInfo.title, reqArtist: trackInfo.artist };
 
                 // Add copyright/provider info
                 // Note: CreditFooter in UI already adds "Provided by [Provider]", so we don't need to add it here.

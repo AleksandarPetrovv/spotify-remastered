@@ -35,7 +35,7 @@ const VideoManager = {
      */
     init() {
         this._generateUserHash();
-        console.log("[VideoManager] Initialized (ivLyrics Client-Only Mode with Retry)");
+
     },
 
 
@@ -149,7 +149,7 @@ const VideoManager = {
      */
     async _searchDirectYoutube(query) {
         const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
-        console.log(`[VideoManager] Searching YouTube directly: ${url}`);
+
         
         try {
             let html = null;
@@ -212,7 +212,7 @@ const VideoManager = {
                                 const videoId = video.videoId;
                                 const title = video.title?.runs?.[0]?.text;
                                 if (videoId) {
-                                    console.log(`[VideoManager] Direct search matched: ${videoId} ("${title}")`);
+
                                     return { videoId, title };
                                 }
                             }
@@ -229,7 +229,7 @@ const VideoManager = {
             if (matches.length > 0) {
                 const videoIds = [...new Set(matches.map(m => m[1]))];
                 if (videoIds.length > 0) {
-                    console.log(`[VideoManager] Regex fallback matched: ${videoIds[0]}`);
+
                     return { videoId: videoIds[0], title: query };
                 }
             }
@@ -245,7 +245,7 @@ const VideoManager = {
      */
     async _getDynamicInvidiousInstances() {
         try {
-            console.log("[VideoManager] Fetching dynamic Invidious instances...");
+
             const response = await fetch("https://api.invidious.io/instances.json");
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             
@@ -268,7 +268,7 @@ const VideoManager = {
                 }
             }
             
-            console.log(`[VideoManager] Resolved ${candidates.length} healthy Invidious instances.`);
+
             return candidates;
         } catch (e) {
             console.warn("[VideoManager] Failed to fetch dynamic Invidious instances:", e.message);
@@ -290,7 +290,7 @@ const VideoManager = {
         
         for (const instance of toTest) {
             const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
-            console.log(`[VideoManager] Fallback search via Invidious instance: ${instance}`);
+
             
             try {
                 const controller = new AbortController();
@@ -340,7 +340,7 @@ const VideoManager = {
      */
     async searchMultipleVideos(query, trackUri = null, trackInfo = null) {
         if (trackUri && this._lastSearchUri === trackUri && this._lastSearchResults.length > 0) {
-            console.log(`[VideoManager] Returning cached multi-search results for: ${trackUri}`);
+
             return this._lastSearchResults;
         }
 
@@ -353,7 +353,7 @@ const VideoManager = {
 
         for (const instance of toTest) {
             const url = `${instance}/api/v1/search?q=${encodeURIComponent(query)}&type=video`;
-            console.log(`[VideoManager] Multi-search via Invidious instance: ${instance}`);
+
             
             try {
                 const controller = new AbortController();
@@ -425,7 +425,7 @@ const VideoManager = {
 
         // Cache hit: Return cached video ONLY if it's for the same track
         if (this._lastFetchUri === trackInfo.uri && this._currentVideo?.uri === trackInfo.uri) {
-            console.log("[VideoManager] Cache hit for:", trackInfo.title);
+
             return this._currentVideo;
         }
         
@@ -453,7 +453,7 @@ const VideoManager = {
                 uri: trackInfo.uri,
                 source: "manual+saved"
             };
-            console.log(`[VideoManager] Using saved manual video: ${manualVideoId} (offset: ${savedOffset}s)`);
+
             return this._currentVideo;
         }
 
@@ -468,12 +468,12 @@ const VideoManager = {
                 uri: trackInfo.uri,
                 source: "auto_cache"
             };
-            console.log(`[VideoManager] Using cached automatic video: ${cachedAuto.videoId} (offset: ${savedOffset}s)`);
+
             return this._currentVideo;
         }
 
         const query = this._cleanQuery(trackInfo.artist || "", trackInfo.title || "");
-        console.log(`[VideoManager] Searching video background for: ${query}`);
+
         
         try {
             // Try Direct YouTube Scrape (highly accurate, fast, domestic IP bypasses bot bans)
@@ -482,13 +482,13 @@ const VideoManager = {
             
             // Check if aborted after fetch
             if (abortSignal.aborted || this._lastFetchUri !== trackInfo.uri) {
-                console.log(`[VideoManager] Ignored stale response for: ${trackInfo.title}`);
+
                 return null;
             }
 
             // Fallback to Invidious if direct search failed (direct search fails due to CORS in Spotify UI)
             if (!result || !result.videoId) {
-                console.log("[VideoManager] Direct search failed (CORS or network), attempting Invidious fallback...");
+
                 result = await this._searchInvidious(query, trackInfo.uri);
                 source = "invidious";
             }
@@ -506,7 +506,7 @@ const VideoManager = {
                 if (savedOffset !== null) {
                     syncOffset = savedOffset;
                     source += "+saved";
-                    console.log(`[VideoManager] Using saved offset: ${savedOffset}s`);
+
                 }
                 
                 this._currentVideo = {
@@ -517,10 +517,10 @@ const VideoManager = {
                     source: source
                 };
                 
-                console.log(`[VideoManager] Found video: ${videoId} (offset: ${syncOffset}s, source: ${source})`);
+
                 return this._currentVideo;
             } else {
-                console.log("[VideoManager] No video found on any channels");
+
             }
         } catch (e) {
             console.error(`[VideoManager] Video search failed:`, e.message);
@@ -552,7 +552,7 @@ const VideoManager = {
         };
         this._lastFetchUri = trackInfo?.uri;
         
-        console.log(`[VideoManager] Manual video set: ${videoId} (offset: ${offset}s)`);
+
         return this._currentVideo;
     },
 
@@ -575,7 +575,7 @@ const VideoManager = {
                 await IDBCache.delete(manualKey);
                 await IDBCache.delete(offsetKey);
                 await IDBCache.delete(autoKey);
-                console.log(`[VideoManager] Cleared DB cache and manual configs for: ${trackUri.split(':').pop()}`);
+
             } catch (e) {
                 console.warn("[VideoManager] Failed to clear DB for track:", e);
             }
@@ -586,7 +586,7 @@ const VideoManager = {
         } else {
             this._lastFetchUri = null;
             this._currentVideo = null;
-            console.log("[VideoManager] Memory cache cleared");
+
         }
     },
 
@@ -605,7 +605,7 @@ const VideoManager = {
         
         try {
             await IDBCache.set(key, { videoId, title, savedAt: Date.now() }, oneYear);
-            console.log(`[VideoManager] Cached auto video ${videoId} for: ${trackUri.split(':').pop()}`);
+
             return true;
         } catch (e) {
             console.warn('[VideoManager] Failed to cache auto video:', e);
@@ -648,7 +648,7 @@ const VideoManager = {
         
         try {
             await IDBCache.set(key, { videoId, savedAt: Date.now() }, tenYears);
-            console.log(`[VideoManager] Saved manual video ${videoId} for: ${trackUri.split(':').pop()}`);
+
             return true;
         } catch (e) {
             console.warn('[VideoManager] Failed to save manual video:', e);
@@ -669,7 +669,7 @@ const VideoManager = {
         try {
             const data = await IDBCache.get(key);
             if (data?.videoId) {
-                console.log(`[VideoManager] Loaded manual video ${data.videoId} for: ${trackUri.split(':').pop()}`);
+
                 return data.videoId;
             }
         } catch (e) {
@@ -692,7 +692,7 @@ const VideoManager = {
         
         try {
             await IDBCache.set(key, { offset, savedAt: Date.now() }, tenYears);
-            console.log(`[VideoManager] Saved offset ${offset}s for: ${trackUri.split(':').pop()}`);
+
             return true;
         } catch (e) {
             console.warn('[VideoManager] Failed to save offset:', e);
@@ -713,7 +713,7 @@ const VideoManager = {
         try {
             const data = await IDBCache.get(key);
             if (data?.offset !== undefined) {
-                console.log(`[VideoManager] Loaded saved offset ${data.offset}s for: ${trackUri.split(':').pop()}`);
+
                 return data.offset;
             }
         } catch (e) {

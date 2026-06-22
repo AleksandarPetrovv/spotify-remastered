@@ -465,6 +465,32 @@ NOW PLAYING BAR
   background: var(--backdrop) !important;
 }
 
+/* Soften the cover-derived fullscreen background. The FSD bg is set inline
+   (version-hashed element), so instead of targeting it we lay a fixed overlay
+   whose backdrop-filter desaturates/lightens what's behind it, and mask it to
+   spare the centered cover so only the loud surrounding colour is tamed. */
+html.spotify__container--is-desktop.fullscreen body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  backdrop-filter: saturate(0.6) brightness(1.12);
+  -webkit-backdrop-filter: saturate(0.6) brightness(1.12);
+  -webkit-mask-image: radial-gradient(
+    ellipse 19% 31% at 50% 46%,
+    transparent 0%,
+    transparent 78%,
+    #000 100%
+  );
+  mask-image: radial-gradient(
+    ellipse 19% 31% at 50% 46%,
+    transparent 0%,
+    transparent 78%,
+    #000 100%
+  );
+}
+
 /* Theme DJ X Icon in now playing bar */
 .vOIOYNxCLYIrEIrQ5zrF {
   background: var(--background-tinted-base) !important;

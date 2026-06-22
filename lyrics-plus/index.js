@@ -1696,23 +1696,23 @@ class LyricsContainer extends react.Component {
     if (!Array.isArray(target)) return target;
     if (!Array.isArray(source) || source.length !== target.length)
       return target;
-    const needsRepair = target.some(
-      (l) => l && (typeof l.startTime !== "number" || !isFinite(l.startTime)),
-    );
+    // Spotify's color-lyrics API returns startTimeMs as a string; coerce before
+    // validating so numeric strings count as valid timing rather than getting wiped.
+    const toFiniteMs = (v) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+    const needsRepair = target.some((l) => l && toFiniteMs(l.startTime) === null);
     if (!needsRepair) return target;
     return target.map((line, i) => {
       const src = source[i];
       if (!src) return line;
+      const start = toFiniteMs(line?.startTime);
+      const end = toFiniteMs(line?.endTime);
       return {
         ...line,
-        startTime:
-          typeof line?.startTime === "number" && isFinite(line.startTime)
-            ? line.startTime
-            : src.startTime,
-        endTime:
-          typeof line?.endTime === "number" && isFinite(line.endTime)
-            ? line.endTime
-            : src.endTime,
+        startTime: start !== null ? start : src.startTime,
+        endTime: end !== null ? end : src.endTime,
       };
     });
   }

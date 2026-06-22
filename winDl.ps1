@@ -116,7 +116,7 @@ Start-Process "wscript.exe" -ArgumentList "`"$dlVbs`"" -WindowStyle Hidden
 $wshell = New-Object -ComObject WScript.Shell
 $premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 
-$spotxFlags = "-podcasts_off"
+$spotxFlags = "-podcasts_off -block_update_off"
 if ($premiumResponse -eq 6) { $spotxFlags += " -premium" }
 try { iex "& { $(iwr -useb 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1') } -confirm_spoti_recomended_over $spotxFlags" } catch { }
 

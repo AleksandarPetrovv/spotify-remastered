@@ -22,6 +22,17 @@ const isNoteLineObject = (line) => {
     return false;
 };
 
+// Whether a line has anything to display (text or translation). Trailing blank
+// lines must not become the active line, or the page scrolls past the last lyric
+// into empty space when the song ends.
+const lineHasContent = (line) => {
+    if (!line) return false;
+    const t = line.text;
+    const hasText = Array.isArray(t) ? t.length > 0 : typeof t === "string" ? t.trim() !== "" : !!t;
+    const hasOriginal = typeof line.originalText === "string" ? line.originalText.trim() !== "" : !!line.originalText;
+    return hasText || hasOriginal;
+};
+
 // === Idling indicator timing constants ===
 // All providers (Spotify, LRCLIB, Musixmatch synced) only give startTime per line.
 // We must estimate when each line actually finishes singing using char count + a per-song tempo.
@@ -44,6 +55,9 @@ const GAP_THRESHOLD_MAX = 10000;
 const LINE_END_INTERVAL_FLOOR_RATIO = 0.6;
 const INTRO_THRESHOLD_MIN = 3000;
 const INTRO_THRESHOLD_MAX = 8000;
+// Start the active-line switch (scroll + glow) this much earlier than the line's
+// actual startTime, so the smooth scroll/glow has time to finish on the beat.
+const SCROLL_LEAD_MS = 500;
 
 // Compute the song's own tempo from consecutive line pairs.
 // Pairs spaced > 10s apart are treated as pauses and excluded so they don't bias the estimate.
@@ -247,14 +261,24 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
         // page jumps to the bottom on open. Keep it at the top instead.
         const isSynced = lyricWithEmptyLines.some((l) => Number(l.startTime) > 0);
         if (!isSynced) return 0;
+        let lastContentIndex = lyricWithEmptyLines.length - 1;
+        while (lastContentIndex > 0 && !lineHasContent(lyricWithEmptyLines[lastContentIndex])) lastContentIndex--;
         for (let i = lyricWithEmptyLines.length - 1; i > 0; i--) {
             const line = lyricWithEmptyLines[i];
-            if (line && position >= (line.startTime || 0)) {
-                return i;
+            if (line && position + SCROLL_LEAD_MS >= (line.startTime || 0)) {
+                return Math.min(i, lastContentIndex);
             }
         }
         return 0;
     }, [lyricWithEmptyLines, position]);
+
+    // The --offset below is measured from the active line's ref, which isn't attached
+    // on the first render. While playing, position ticks force a re-measure; when paused
+    // on launch nothing does, so force one recompute after the active line settles.
+    const [, recomputeOffset] = useState(0);
+    react.useLayoutEffect(() => {
+        recomputeOffset((n) => n + 1);
+    }, [activeLineIndex, lyricWithEmptyLines]);
 
     let offset = lyricContainerEle.current ? lyricContainerEle.current.clientHeight / 2 : 0;
     if (activeLineEle.current) {
@@ -526,10 +550,12 @@ const activeLineIndex = useMemo(() => {
 	// jumps to the bottom on open. Keep it at the top instead.
 	const isSynced = padded.some((l) => Number(l.startTime) > 0);
 	if (!isSynced) return 0;
+	let lastContentIndex = padded.length - 1;
+	while (lastContentIndex > 0 && !lineHasContent(padded[lastContentIndex])) lastContentIndex--;
 	for (let i = padded.length - 1; i >= 0; i--) {
 		const line = padded[i];
-		if (line && position >= (line.startTime || 0)) {
-			return i;
+		if (line && position + SCROLL_LEAD_MS >= (line.startTime || 0)) {
+			return Math.min(i, lastContentIndex);
 		}
 	}
 	return 0;

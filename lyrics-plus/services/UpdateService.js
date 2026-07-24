@@ -7,6 +7,14 @@ const UpdateService = {
     CURRENT_VERSION: "1.7.0",
     CHECK_INTERVAL: 0,
 
+    // FORK POLICY: self-updates are permanently DISABLED for spotify-remastered.
+    // This is a customized fork of Tuna285/custom-of-lyrics-plus; the upstream
+    // installer that this updater points at would OVERWRITE all fork features
+    // (Genius Cyrillic/Greek, provider order, Hazy integration, etc.). Users of
+    // this config must never be nagged to "update" into a reinstall that wipes it.
+    // Do not flip this back on without a fork-aware migration path.
+    ENABLED: false,
+
     UPDATE_FILES: [
         "index.js", "style.css", "manifest.json", "version.json", "types.d.ts", "variables.css",
         "utils/Namespace.js", "utils/Utils.js", "utils/Config.js", "utils/Cache.js", "utils/Prompts.js", "utils/TranslationUtils.js",
@@ -19,6 +27,8 @@ const UpdateService = {
     ],
 
     async checkForUpdates(silent = false) {
+        // Fork policy: never check, never nag. See ENABLED note above.
+        if (!this.ENABLED) return null;
         try {
             const lastCheck = localStorage.getItem("lyrics-plus:last-update-check");
             const now = Date.now();
@@ -142,6 +152,8 @@ const UpdateService = {
     },
 
     showUpdateNotification(newVersion, changelog = null) {
+        // Fork policy: update nag is disabled. See ENABLED note above.
+        if (!this.ENABLED) return;
         const React = Spicetify.React;
 
         // State management for the modal

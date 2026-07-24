@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-07-22
+
+### Added
+
+- **Clean Lyrics Origin Filtering** — Automatically filters empty dummy provider lines (`durationToNext < 9000ms`) during initial LRC parsing while strictly protecting true singing lines and instrumental tracks.
+- **Automatic Cache Invalidation** — Automatically purges stale IndexedDB cache entries when lyric line counts mismatch (`cached.length !== lyrics.length`), preventing line-shifts and missing Romaji lines.
+- **Dynamic Line Transitions & Idling Rest Animation** — Combined tempo-adaptive line transition timing (`--line-transition-duration`) with smooth 3-dot rest animations (`• • •`), upward rise, and staggered drop timing for musical rests.
+- **AI Furigana Transliteration** — Added Japanese Furigana support using HTML `<ruby>` tags powered by AI for inline kanji readings.
+- **Full-Window Settings Layout** — Added setting option allowing the configuration panel to cover the entire window.
+- **Visual Video Background Modal** — Added an intuitive modal interface with thumbnail previews for picking top 5 matching YouTube background videos and controlling blur/dim settings.
+- **Multi-Key API Rotation & Quota Failover** — Supported round-robin rotation across multiple Gemini API keys with instant failover on HTTP 429 quota errors.
+
+### Changed
+
+- **NetEase Search & Lyrics Matching** — Refined search logic with visual status badges (`Synced`, `Unsynced`, `No Lyrics`) and lowered matching threshold for Japanese/Korean tracks.
+- **YouTube Video Search & Captions** — Refined YouTube background video search logic and automatically disables native YouTube closed captions.
+- **Phonetic Model Routing** — Routed mechanical phonetic transcriptions (Romaji, Furigana, Pinyin) to `gemini-3.5-flash-lite` while keeping primary translations on `gemini-3.6-flash`.
+
+### Fixed
+
+- **Prompt Engineering Tag Cleanup** — Enhanced closing tag regex to strip all variations of malformed model tags (`</17>`, `</19>`) in prompt engineering mode.
+- **Toolbar SVG Icons & Action Buttons** — Restored 16x16 SVG toolbar icons, removed deprecated unavailable buttons, and fixed theme color inheritance for Adjustment setting buttons.
+
 ## [1.7.0] - 2026-06-05
 
 ### Added

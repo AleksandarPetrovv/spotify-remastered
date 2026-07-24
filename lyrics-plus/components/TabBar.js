@@ -66,16 +66,21 @@ const TopBarContent = ({ links, activeLink, lockLink, switchCallback, lockCallba
 	const resizeHost = document.querySelector(
 		".Root__main-view .os-resize-observer-host, .Root__main-view .os-size-observer, .Root__main-view .main-view-container__scroll-node"
 	);
-	const [windowSize, setWindowSize] = useState(resizeHost.clientWidth);
-	const resizeHandler = () => setWindowSize(resizeHost.clientWidth);
+	const [windowSize, setWindowSize] = useState(resizeHost ? resizeHost.clientWidth : (typeof window !== "undefined" ? window.innerWidth : 800));
+	const resizeHandler = () => {
+		if (resizeHost) {
+			setWindowSize(resizeHost.clientWidth);
+		}
+	};
 
 	useEffect(() => {
+		if (!resizeHost) return;
 		const observer = new ResizeObserver(resizeHandler);
 		observer.observe(resizeHost);
 		return () => {
 			observer.disconnect();
 		};
-	}, [resizeHandler]);
+	}, [resizeHandler, resizeHost]);
 
 	return react.createElement(
 		TabBarContext,
@@ -92,10 +97,13 @@ const TopBarContent = ({ links, activeLink, lockLink, switchCallback, lockCallba
 	);
 };
 
+// getReactDOM is provided globally by index.js (kept from 1.7.0). Duplicate 1.8.0
+// declaration removed to avoid a top-level const collision in the concatenated bundle.
+
 const TabBarContext = ({ children }) => {
 	const reactDOMRef = getReactDOM();
 	const target = document.querySelector(".main-topBar-topbarContentWrapper");
-	if (!reactDOMRef?.createPortal || !target) return children;
+	if (!reactDOMRef?.createPortal || !target) return null;
 
 	return reactDOMRef.createPortal(
 		react.createElement(

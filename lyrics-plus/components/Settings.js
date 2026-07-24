@@ -656,6 +656,7 @@ const ConfigHelper = () => {
 		case "background":
 			const bgSettings = [
 				{ desc: getText("settings.videoBackground.label"), key: "video-background", type: ConfigSlider, info: getText("settings.videoBackground.desc") },
+				{ desc: getText("settings.videoBackgroundFullscreen.label") || "Fullscreen video background", key: "video-background-fullscreen", type: ConfigSlider, info: getText("settings.videoBackgroundFullscreen.desc") || "Let the video background cover the whole Spotify window instead of just the lyrics panel.", when: () => CONFIG.visual["video-background"] },
 				{ desc: getText("settings.videoBackgroundScale.label"), key: "video-background-scale", type: ConfigAdjust, min: 1, max: 2, step: 0.1, defaultValue: 1.1 },
 				{ desc: getText("settings.videoBackgroundDim.label"), key: "video-background-dim", type: ConfigAdjust, min: 0, max: 100, step: 10, defaultValue: 50 },
 				{ desc: getText("settings.videoBackgroundBlur.label") || "Độ mờ Video", key: "video-background-blur", type: ConfigAdjust, min: 0, max: 80, step: 2, defaultValue: 0 },

@@ -90,8 +90,44 @@
             return;
         }
 
+        // Spotify renders the now-playing lyrics button as disabled (isEnabled =
+        // track.hasLyrics) with no click handler when a track has no native lyrics.
+        // Force it to always look/act enabled so it can always open Lyrics Plus.
+        // Match by data-testid (tag-agnostic): recent Spotify renders the button via
+        // an encore primitive whose class changed (main-nowPlayingBar-lyricsButton ->
+        // main-genericButton-button) and which may not be a literal <button>, so the old
+        // button[...]/class selectors miss it. data-testid="lyrics-button" is stable.
+        const LYRICS_BTN_SEL = "[data-testid='lyrics-button'], .main-nowPlayingBar-lyricsButton";
+        const forceEnableStyle = () => {
+            if (document.getElementById("sr-force-lyrics-style")) return;
+            const style = document.createElement("style");
+            style.id = "sr-force-lyrics-style";
+            style.textContent = `
+                [data-testid="lyrics-button"],
+                [data-testid="lyrics-button"]:disabled,
+                [data-testid="lyrics-button"][disabled],
+                [data-testid="lyrics-button"][aria-disabled="true"],
+                .main-nowPlayingBar-lyricsButton,
+                .main-nowPlayingBar-lyricsButton:disabled {
+                    opacity: 1 !important;
+                    pointer-events: auto !important;
+                    cursor: pointer !important;
+                    visibility: visible !important;
+                }
+            `;
+            document.head.appendChild(style);
+        };
+
         const redirectLyricsButton = () => {
-            document.querySelectorAll(".main-nowPlayingBar-lyricsButton").forEach(btn => {
+            document.querySelectorAll(LYRICS_BTN_SEL).forEach(btn => {
+                // Always strip the disabled state Spotify applies when no native lyrics exist
+                if (btn.disabled) btn.disabled = false;
+                btn.removeAttribute("disabled");
+                btn.removeAttribute("aria-disabled");
+                btn.style.opacity = "1";
+                btn.style.pointerEvents = "auto";
+                btn.style.cursor = "pointer";
+
                 if (btn.dataset.lyricsRedirected) return;
                 btn.dataset.lyricsRedirected = "true";
                 btn.addEventListener("click", (e) => {
@@ -117,6 +153,7 @@
             });
         };
 
+        forceEnableStyle();
         redirectLyricsButton();
         hideNavLink();
         let _mutTimer = null;

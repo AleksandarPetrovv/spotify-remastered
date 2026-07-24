@@ -3421,6 +3421,7 @@ class LyricsContainer extends react.Component {
           brightness: CONFIG.visual["video-background-dim"],
           blurAmount: CONFIG.visual["video-background-blur"],
           scale: CONFIG.visual["video-background-scale"],
+          fullscreen: CONFIG.visual["video-background-fullscreen"],
           videoInfo: this.state.videoBackground,
         }),
 

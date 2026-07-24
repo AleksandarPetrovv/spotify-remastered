@@ -1768,7 +1768,14 @@ class LyricsContainer extends react.Component {
 
     // Await Cache (L1 -> L2 logic inside CacheManager)
     const cached = await CacheManager.get(cacheKey2);
-    if (cached) {
+    if (cached && Array.isArray(cached) && cached.length !== lyrics.length) {
+      // Stale cache (line count changed) → purge instead of returning misaligned
+      // translations. Ported from lyrics-plus 1.8.0.
+      console.warn(
+        `[Lyrics+] Cache length mismatch! Cached: ${cached.length}, Current lyrics: ${lyrics.length}. Invalidating stale cache.`,
+      );
+      await CacheManager.delete(cacheKey2);
+    } else if (cached) {
       if (silent) {
         const u = lyricsState.uri;
         queueMicrotask(() => this._maybeClearPretranslateChip(u));
@@ -2041,8 +2048,19 @@ class LyricsContainer extends react.Component {
 
     // Await Cache
     const cached = await CacheManager.get(cacheKey);
-    if (cached) {
-
+    if (cached && Array.isArray(cached)) {
+      // Invalidate stale cache whose line count no longer matches the current
+      // lyrics — otherwise mergeTiming misaligns romaji onto the wrong lines
+      // (shifted/missing Romaji rows). Ported from lyrics-plus 1.8.0.
+      if (cached.length !== lyrics.length) {
+        console.warn(
+          `[Lyrics+] Trad cache length mismatch! Cached: ${cached.length}, Current lyrics: ${lyrics.length}. Invalidating stale cache.`,
+        );
+        await CacheManager.delete(cacheKey);
+      } else {
+        return mergeTiming(cached);
+      }
+    } else if (cached) {
       return mergeTiming(cached);
     }
 

@@ -64,7 +64,15 @@ const ProviderNetease = (() => {
         const artistSim = levenshtein(artistStr, info.artist);
         const deltaMs   = Math.abs((candidate.dt || candidate.duration || 0) - (info.duration || 0));
         const durScore  = Math.max(0, 1 - deltaMs / 10000);
-        return titleSim * 0.4 + artistSim * 0.3 + durScore * 0.3;
+        let score = titleSim * 0.4 + artistSim * 0.3 + durScore * 0.3;
+        // Duration is the strongest signal that two entries are the same recording.
+        // A title/artist that matches but with a wildly different length is almost
+        // always a coincidental name clash — e.g. a romaji-named decoy ("Shoujo Rei"
+        // by some unrelated artist, 60s shorter) outscoring the real native-script
+        // track ("少女レイ") on an exact romaji title match. Heavily discount matches
+        // whose duration is far off so the correct recording wins.
+        if (info.duration && deltaMs > 25000) score *= 0.2;
+        return score;
     }
 
     const SCORE_THRESHOLD = 0.28;
@@ -105,44 +113,44 @@ const ProviderNetease = (() => {
     async function findLyrics(info) {
         const err = (msg) => ({ error: msg, uri: info.uri });
 
-        try {
-            // Clean title and extract primary artist to optimize NetEase's search engine
-            const cleanTitle = Utils.removeSongFeat(Utils.removeExtraInfo(info.title));
-            const primaryArtist = info.artist.split(",")[0].split("&")[0].trim(); // Extract first artist
+        // Search + score for one query; candidates are always scored against the
+        // ORIGINAL track info, so a romanized query still ranks the right native
+        // result. Returns the best candidate above the (dynamic) threshold, or null.
+        const searchBest = async (q, scoreInfo) => {
+            const cleanTitle = Utils.removeSongFeat(Utils.removeExtraInfo(q.title));
+            const primaryArtist = q.artist.split(",")[0].split("&")[0].trim();
 
             DebugLogger.log(`[NetEase] Searching for "${cleanTitle}" by primary artist "${primaryArtist}"`);
             let songs = await searchSongs(`${cleanTitle} ${primaryArtist}`, 6);
             let searchMethod = "combined";
 
-            // Layered Fallback 1: Search by clean title alone (excellent for rare or multi-artist songs)
+            // Layered Fallback 1: clean title alone (good for rare/multi-artist songs)
             if (!songs.length) {
-                DebugLogger.log(`[NetEase] No results for "${cleanTitle} ${primaryArtist}", falling back to title alone: "${cleanTitle}"`);
                 songs = await searchSongs(cleanTitle, 8);
                 searchMethod = "title_only";
             }
 
-            // Layered Fallback 2: Search by primary artist alone + match by duration (last resort)
+            // Layered Fallback 2: primary artist alone + duration match (last resort)
             if (!songs.length) {
-                DebugLogger.log(`[NetEase] No results for title alone, falling back to artist: "${primaryArtist}"`);
                 songs = await searchSongs(primaryArtist, 10);
                 searchMethod = "artist_only";
             }
-            if (!songs.length) return err("NetEase: no results");
+            if (!songs.length) return null;
 
             const scored = songs
-                .map(c => ({ c, score: scoreCandidate(c, info) }))
+                .map(c => ({ c, score: scoreCandidate(c, scoreInfo) }))
                 .sort((a, b) => b.score - a.score);
 
             DebugLogger.log(
-                `[NetEase] Top matches for "${info.title}":`,
+                `[NetEase] Top matches for "${scoreInfo.title}":`,
                 scored.slice(0, 3).map(s => `${s.c.name} — ${s.score.toFixed(2)}`)
             );
 
-            // Dynamic thresholds to handle foreign translated titles (e.g. Japanese/Chinese/Korean)
+            // Dynamic thresholds to handle foreign translated titles (JP/CN/KR)
             let threshold = SCORE_THRESHOLD;
             if (searchMethod === "combined") {
                 const bestCand = scored[0].c;
-                const deltaMs = Math.abs((bestCand.dt || bestCand.duration || 0) - (info.duration || 0));
+                const deltaMs = Math.abs((bestCand.dt || bestCand.duration || 0) - (scoreInfo.duration || 0));
                 if (deltaMs < 8000) {
                     threshold = 0.12; // High confidence: matching combination and close duration
                 } else if (deltaMs < 15000) {
@@ -150,17 +158,50 @@ const ProviderNetease = (() => {
                 }
             }
 
-            if (scored[0].score < threshold) {
-                return err(`NetEase: best match score ${scored[0].score.toFixed(2)} below threshold ${threshold.toFixed(2)}`);
+            return scored
+                .filter(s => s.score >= threshold)
+                .map(s => ({ song: s.c, score: s.score }));
+        };
+
+        try {
+            let candidates = await searchBest(info, info);
+
+            // CJK title with no confident match: retry with offline romanization
+            // (romaji/romaja/pinyin). NetEase files most CJK songs under native
+            // script, so this only fires as a last resort.
+            if (!candidates.length && typeof Translator !== "undefined" && Translator.hasCJK(`${info.title} ${info.artist}`)) {
+                const variants = await Translator.romanizeSearchVariants(info);
+                for (const v of variants) {
+                    candidates = await searchBest({ ...v, duration: info.duration }, info);
+                    if (candidates.length) break;
+                }
             }
 
-            const best    = scored[0].c;
-            const songId  = best.id;
-            const lyricData = await fetchLyricsById(songId);
-            
-            const rawLrc = lyricData?.lrc?.lyric || "";
-            let { synced, unsynced } = parseLyrics(rawLrc);
-            if (!synced && !unsynced) return err("NetEase: no lyrics found for this track");
+            if (!candidates.length) return err("NetEase: no confident match");
+
+            // NetEase often ranks a lyric-less entry first (karaoke placeholders,
+            // instrumental covers, or a same-name decoy). Walk the confident
+            // candidates and use the first that actually carries lyrics, instead of
+            // giving up on the single best-scored one.
+            let picked = null;
+            for (const cand of candidates.slice(0, 4)) {
+                try {
+                    const data = await fetchLyricsById(cand.song.id);
+                    const raw = data?.lrc?.lyric || "";
+                    const parsed = parseLyrics(raw);
+                    if (parsed.synced || parsed.unsynced) {
+                        picked = { song: cand.song, score: cand.score, lyricData: data, rawLrc: raw, synced: parsed.synced, unsynced: parsed.unsynced };
+                        break;
+                    }
+                } catch (_) { /* skip a candidate whose lyrics fail to fetch/parse */ }
+            }
+            if (!picked) return err("NetEase: no lyrics found for this track");
+
+            const songId    = picked.song.id;
+            const lyricData = picked.lyricData;
+            const rawLrc    = picked.rawLrc;
+            let synced      = picked.synced;
+            let unsynced    = picked.unsynced;
 
             let neteaseTranslation = null;
             // Only load translation if it's not already used as primary lyrics
@@ -192,7 +233,7 @@ const ProviderNetease = (() => {
                 genius:            null,
                 neteaseTranslation,
                 _neteaseId:        songId,
-                _neteaseScore:     scored[0].score,
+                _neteaseScore:     picked.score,
             };
 
         } catch (e) {

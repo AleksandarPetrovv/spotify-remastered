@@ -31,7 +31,7 @@ const LRCParser = {
         const unsynced = [];
 
         const isSynced = lines.some(line => syncedTimestamp.test(line));
-        const synced = isSynced ? [] : null;
+        let synced = isSynced ? [] : null; // reassigned below when dummy lines are cleaned
         const isKaraoke = lines.some(line => karaokeTimestamp.test(line));
         const karaoke = isKaraoke ? [] : null;
 

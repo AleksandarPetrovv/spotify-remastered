@@ -2,27 +2,44 @@ const ProviderLRCLIB = (() => {
 	async function findLyrics(info) {
 		const baseURL = "https://lrclib.net/api/get";
 		const durr = info.duration / 1000;
-		const params = {
-			track_name: info.title,
-			artist_name: info.artist,
-			album_name: info.album,
-			duration: durr,
+
+		const tryGet = async (title, artist, album) => {
+			const params = {
+				track_name: title,
+				artist_name: artist,
+				album_name: album,
+				duration: durr,
+			};
+			const finalURL = `${baseURL}?${Object.keys(params)
+				.map((key) => `${key}=${encodeURIComponent(params[key])}`)
+				.join("&")}`;
+			const body = await fetch(finalURL);
+			if (body.status !== 200) return null;
+			return await body.json();
 		};
 
-		const finalURL = `${baseURL}?${Object.keys(params)
-			.map((key) => `${key}=${encodeURIComponent(params[key])}`)
-			.join("&")}`;
+		let data = await tryGet(info.title, info.artist, info.album);
 
-		const body = await fetch(finalURL);
+		// lrclib matches on exact metadata, so a native-script (e.g. Japanese)
+		// title misses entries filed under a romanized name. Retry romanized.
+		if (!data && typeof Translator !== "undefined" && Translator.hasCJK(`${info.title} ${info.artist}`)) {
+			try {
+				const variants = await Translator.romanizeSearchVariants(info);
+				for (const v of variants) {
+					data = await tryGet(v.title, v.artist, v.album);
+					if (data) break;
+				}
+			} catch (e) { /* romanization is best-effort */ }
+		}
 
-		if (body.status !== 200) {
+		if (!data) {
 			return {
 				error: "Request error: Track wasn't found",
 				uri: info.uri,
 			};
 		}
 
-		return await body.json();
+		return data;
 	}
 
 	function getUnsynced(body) {

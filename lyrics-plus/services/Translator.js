@@ -97,7 +97,20 @@ class Translator {
 
 	async romajifyText(text, target = "romaji", mode = "spaced") {
 		await this.awaitFinished("ja");
-		const out = await this.kuroshiro.convert(text, { to: target, mode: mode, romajiSystem: "hepburn" });
+		let src = text;
+		// NetEase (a Chinese service) serves many Japanese songs with simplified-
+		// Chinese glyph forms (针/爱/仆/变/谁/图/伤…) that kuromoji's Japanese
+		// dictionary can't read, so it leaves them raw in the romaji output. Normalize
+		// simplified → Japanese shinjitai first (only when Han chars are present, so
+		// pure-kana lines pay no cost) so the tokenizer can romanize them.
+		if (/[一-鿿]/.test(text)) {
+			try {
+				await this.awaitFinished("zh");
+				if (!this._cnToJp) this._cnToJp = this.OpenCC.Converter({ from: "cn", to: "jp" });
+				src = this._cnToJp(text);
+			} catch (e) { /* OpenCC optional; fall back to the raw text */ }
+		}
+		const out = await this.kuroshiro.convert(src, { to: target, mode: mode, romajiSystem: "hepburn" });
 		return Translator.normalizeRomajiString(out);
 	}
 
@@ -133,6 +146,85 @@ class Translator {
 
 	async loadPinyinPro() {
 		// Compatibility fallback if anyone calls this
+	}
+
+	// ── Search-query romanization (offline, NOT AI) ─────────────────────────────
+	// Providers search the native-script title first; when that returns no lyrics
+	// they retry with a romanized query. This mirrors ProviderGenius's Cyrillic/
+	// Greek char-map retry, but CJK can't be char-mapped (kanji have no fixed
+	// reading), so it runs the async kuromoji/aromanize/opencc/pinyin engines on
+	// one shared Translator instance created lazily on first miss.
+	static getSharedRomanizer() {
+		if (!Translator._sharedRomanizer) {
+			Translator._sharedRomanizer = new Translator("ja");
+		}
+		return Translator._sharedRomanizer;
+	}
+
+	// Cheap gate so providers can skip the async helper entirely for Latin/Cyrillic
+	// titles (kana + katakana + hangul + CJK Han).
+	static hasCJK(str) {
+		return /[぀-ゟ゠-ヿ가-힯一-鿿]/.test(String(str || ""));
+	}
+
+	// Returns an ordered list of romanized { title, artist, album, kind } variants
+	// to retry a search with, or [] when the input has no CJK (zero cost for
+	// non-CJK titles — they keep their existing paths). Kana ⇒ romaji, Hangul ⇒
+	// romaja, Han-only ⇒ romaji first (Japanese reading, our common case) then
+	// pinyin (the Han block is shared between Japanese kanji and Chinese hanzi, so
+	// we can't tell them apart from the text alone — try both, best-effort).
+	static async romanizeSearchVariants(info) {
+		const title = String(info?.title || "");
+		const artist = String(info?.artist || "");
+		const album = String(info?.album || "");
+		const probe = `${title} ${artist}`;
+		const hasKana = /[぀-ゟ゠-ヿ]/.test(probe);
+		const hasHangul = /[가-힯]/.test(probe);
+		const hasHan = /[一-鿿]/.test(probe);
+		if (!hasKana && !hasHangul && !hasHan) return [];
+
+		const t = Translator.getSharedRomanizer();
+		const variants = [];
+		const seen = new Set();
+
+		// Lyric DBs almost always index romanized titles WITHOUT diacritics, so
+		// strip macrons (ū→u, ō→o) and pinyin tone marks from the search query.
+		// Same NFD + combining-mark strip Genius uses for Latin diacritics. This is
+		// query-only — displayed romaji lyrics keep their macrons.
+		const stripMarks = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+		const addVariant = async (kind, convert) => {
+			try {
+				const rt = stripMarks(Translator.normalizeRomajiString((await convert(title)) || title));
+				const ra = artist ? stripMarks(Translator.normalizeRomajiString((await convert(artist)) || artist)) : "";
+				const ral = album ? stripMarks(Translator.normalizeRomajiString((await convert(album)) || album)) : "";
+				// Skip a conversion that didn't change the query (e.g. pinyin lib
+				// missing returns the original) — it would just repeat the search.
+				if ((!rt || rt === title) && (!ra || ra === artist)) return;
+				const dedupeKey = `${rt}␟${ra}`;
+				if (seen.has(dedupeKey)) return;
+				seen.add(dedupeKey);
+				variants.push({ title: rt || title, artist: ra || artist, album: ral || album, kind });
+			} catch (e) {
+				// Romanization is best-effort; a failure just means no extra retry.
+			}
+		};
+
+		if (hasHangul) {
+			await t.awaitFinished("ko");
+			await addVariant("romaja", (x) => t.convertToRomaja(x));
+		}
+		if (hasKana) {
+			await t.awaitFinished("ja");
+			await addVariant("romaji", (x) => t.romajifyText(x));
+		} else if (hasHan) {
+			await t.awaitFinished("ja");
+			await addVariant("romaji", (x) => t.romajifyText(x));
+			await t.awaitFinished("zh");
+			await addVariant("pinyin", (x) => t.convertToPinyin(x));
+		}
+
+		return variants;
 	}
 }
 

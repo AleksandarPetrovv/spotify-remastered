@@ -37,17 +37,25 @@ const ProviderMusixmatch = (() => {
 
 		const durr = info.duration / 1000;
 
-		const queryMxm = async (tokenVal) => {
+		const isLocalUri = typeof info.uri === "string" && info.uri.startsWith("spotify:local:");
+
+		const queryMxm = async (tokenVal, q) => {
 			const params = {
-				q_album: info.album,
-				q_artist: info.artist,
-				q_artists: info.artist,
-				q_track: info.title,
-				track_spotify_id: info.uri,
+				q_album: q.album,
+				q_artist: q.artist,
+				q_artists: q.artist,
+				q_track: q.title,
 				q_duration: durr,
 				f_subtitle_length: Math.floor(durr),
 				usertoken: tokenVal,
 			};
+			// Only send a real Spotify track id. A local file's uri
+			// ("spotify:local:…:seconds") is not a valid id and derails Musixmatch's
+			// matcher into a wrong / lyric-less track, so we omit it for locals and
+			// let it match on title/artist/duration instead.
+			if (!isLocalUri) {
+				params.track_spotify_id = info.uri;
+			}
 
 			const finalURL =
 				baseURL +
@@ -58,52 +66,90 @@ const ProviderMusixmatch = (() => {
 			return await Spicetify.CosmosAsync.get(finalURL, null, headers);
 		};
 
+		// Validate a macro response → the usable body, or an { error } object.
+		const evaluate = (res) => {
+			const body = res?.message?.body?.macro_calls;
+			if (!body) {
+				return {
+					error: `Musixmatch request failed with status: ${res?.message?.header?.status_code || "Unknown"}`,
+					uri: info.uri,
+				};
+			}
+
+			if (body["matcher.track.get"].message.header.status_code !== 200) {
+				return {
+					error: `Requested error: ${body["matcher.track.get"].message.header.mode}`,
+					uri: info.uri,
+				};
+			}
+			if (body["track.lyrics.get"]?.message?.body?.lyrics?.restricted) {
+				return {
+					error: "Unfortunately we're not authorized to show these lyrics.",
+					uri: info.uri,
+				};
+			}
+
+			// Musixmatch fuzzy-matches by title/artist/duration when it can't confirm a
+			// track against Spotify's catalog, and these fuzzy matches return another
+			// song's lyrics_body while still echoing the requested title. A genuine
+			// match echoes the requested Spotify id; a fuzzy fallback returns it empty.
+			// Only trust results whose matched Spotify id equals what we asked for.
+			//
+			// Local files have no real Spotify id — their uri is
+			// "spotify:local:<artist>:<album>:<title>:<seconds>", so the last segment
+			// is a duration, never a track id. Verifying by id would reject every local
+			// track, but skipping verification entirely lets Musixmatch's loose
+			// title/artist fuzzy-match grab a DIFFERENT song of the same name (e.g. an
+			// English "Euphoria"). So for locals we verify by DURATION instead: the
+			// matched track's length must be within 15s of the actual file. Real
+			// Spotify tracks keep the exact-id guard.
+			const matchedTrack = body["matcher.track.get"]?.message?.body?.track;
+			if (isLocalUri) {
+				const matchedLen = matchedTrack?.track_length;
+				if (matchedLen && Math.abs(matchedLen - durr) > 15) {
+					return { error: "Musixmatch: local match duration mismatch", uri: info.uri };
+				}
+			} else {
+				const reqId = info.uri?.split(":").pop();
+				if (reqId && matchedTrack && matchedTrack.track_spotify_id !== reqId) {
+					return { error: "Musixmatch: unverified match (spotify id mismatch)", uri: info.uri };
+				}
+			}
+
+			return body;
+		};
+
 		let currentToken = CONFIG.providers.musixmatch.token;
-		let res = await queryMxm(currentToken);
+		let res = await queryMxm(currentToken, info);
 
 		// If unauthorized (401/402), attempt auto-refresh
 		let statusCode = res?.message?.header?.status_code;
 		if (statusCode === 401 || statusCode === 402) {
 			const refreshedToken = await refreshMusixmatchToken();
 			if (refreshedToken) {
-				res = await queryMxm(refreshedToken);
+				currentToken = refreshedToken;
+				res = await queryMxm(refreshedToken, info);
 			}
 		}
 
-		let body = res?.message?.body?.macro_calls;
-		if (!body) {
-			return {
-				error: `Musixmatch request failed with status: ${res?.message?.header?.status_code || "Unknown"}`,
-				uri: info.uri,
-			};
+		let result = evaluate(res);
+
+		// CJK title came up empty: retry with an offline-romanized query (Musixmatch
+		// indexes many JP/KR/CN songs under a romaji/romaja/pinyin name).
+		if (result && result.error && typeof Translator !== "undefined" && Translator.hasCJK(`${info.title} ${info.artist}`)) {
+			try {
+				const variants = await Translator.romanizeSearchVariants(info);
+				for (const v of variants) {
+					const retryBody = evaluate(await queryMxm(currentToken, v));
+					if (retryBody && !retryBody.error) {
+						result = retryBody;
+						break;
+					}
+				}
+			} catch (e) { /* romanization is best-effort */ }
 		}
 
-		if (body["matcher.track.get"].message.header.status_code !== 200) {
-			return {
-				error: `Requested error: ${body["matcher.track.get"].message.header.mode}`,
-				uri: info.uri,
-			};
-		}
-		if (body["track.lyrics.get"]?.message?.body?.lyrics?.restricted) {
-			return {
-				error: "Unfortunately we're not authorized to show these lyrics.",
-				uri: info.uri,
-			};
-		}
-
-		// Musixmatch fuzzy-matches by title/artist/duration when it can't confirm a
-		// track against Spotify's catalog, and these fuzzy matches return another
-		// song's lyrics_body while still echoing the requested title. A genuine
-		// match echoes the requested Spotify id; a fuzzy fallback returns it empty.
-		// Only trust results whose matched Spotify id equals what we asked for.
-		const matchedTrack = body["matcher.track.get"]?.message?.body?.track;
-		const reqId = info.uri?.split(":").pop();
-		if (reqId && matchedTrack && matchedTrack.track_spotify_id !== reqId) {
-
-			return { error: "Musixmatch: unverified match (spotify id mismatch)", uri: info.uri };
-		}
-
-		return body;
+		return result;
 	}
 
 	async function getKaraoke(body) {

@@ -62,6 +62,16 @@ const ProviderGenius = (() => {
 					hits = await searchHits(latin);
 				}
 			}
+			// The char-map above only covers Cyrillic/Greek. For CJK titles Genius
+			// files under a romanized name too, so retry with offline romaji/romaja/
+			// pinyin (kuromoji/aromanize/pinyin) when the native query came up empty.
+			if (!hits?.length && typeof Translator !== "undefined" && Translator.hasCJK(cyr)) {
+				const variants = await Translator.romanizeSearchVariants(info);
+				for (const v of variants) {
+					hits = await searchHits(`${v.title} ${v.artist}`.trim());
+					if (hits?.length) break;
+				}
+			}
 		} catch (e) {
 			return { error: "Genius: network error" };
 		}

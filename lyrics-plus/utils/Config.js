@@ -111,33 +111,15 @@ const CONFIG = {
         "lines-after": ConfigUtils.getPersisted("lyrics-plus:visual:lines-after") || "4",
         "font-size": ConfigUtils.getPersisted("lyrics-plus:visual:font-size") || "60",
         "lyric-position": Number(ConfigUtils.getPersisted("lyrics-plus:visual:lyric-position")) || 50,
-        "translate:translated-lyrics-source": ConfigUtils.getPersisted("lyrics-plus:visual:translate:translated-lyrics-source") || "geminiVi",
+        "translate:translated-lyrics-source": ConfigUtils.getPersisted("lyrics-plus:visual:translate:translated-lyrics-source") || "traditional",
         "translate:display-mode": ConfigUtils.getPersisted("lyrics-plus:visual:translate:display-mode") || "replace",
         "translate:detect-language-override": ConfigUtils.getPersisted("lyrics-plus:visual:translate:detect-language-override") || "off",
-        "translate:translation-style": ConfigUtils.getPersisted("lyrics-plus:visual:translate:translation-style") || "smart_adaptive",
-        "translate:pronoun-mode": ConfigUtils.getPersisted("lyrics-plus:visual:translate:pronoun-mode") || "default",
         "translation-mode:japanese": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode:japanese") || "none",
         "translation-mode:korean": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode:korean") || "none",
         "translation-mode:chinese": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode:chinese") || "none",
-        "translation-mode:gemini": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode:gemini") || "none",
         "translation-mode-2:japanese": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode-2:japanese") || "none",
         "translation-mode-2:korean": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode-2:korean") || "none",
         "translation-mode-2:chinese": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode-2:chinese") || "none",
-        "translation-mode-2:gemini": ConfigUtils.getPersisted("lyrics-plus:visual:translation-mode-2:gemini") || "none",
-        "gemini-api-key": ConfigUtils.getPersisted("lyrics-plus:visual:gemini-api-key") || "",
-        "gemini-api-key-romaji": ConfigUtils.getPersisted("lyrics-plus:visual:gemini-api-key-romaji") || "",
-        "gemini:endpoint": ConfigUtils.getPersisted("lyrics-plus:visual:gemini:endpoint") || "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        "gemini:model": (() => {
-            const val = ConfigUtils.getPersisted("lyrics-plus:visual:gemini:model");
-            if (!val || val === "gemma-4-26b-a4b-it") {
-                ConfigUtils.setPersisted("lyrics-plus:visual:gemini:model", "gemini-3.1-flash-lite");
-                return "gemini-3.1-flash-lite";
-            }
-            return val;
-        })(),
-        "gemini:response-mode": ConfigUtils.getPersisted("lyrics-plus:visual:gemini:response-mode") || "json_schema",
-        "gemini:reasoning-effort": ConfigUtils.getPersisted("lyrics-plus:visual:gemini:reasoning-effort")
-            || (ConfigUtils.getPersisted("lyrics-plus:visual:gemini:disable-thinking") === "true" ? "off" : "low"),
         translate: ConfigUtils.getPersisted("lyrics-plus:visual:translate") === "true",
         "ja-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:ja-detect-threshold") || "1",
         "hans-detect-threshold": ConfigUtils.getPersisted("lyrics-plus:visual:hans-detect-threshold") || "1",
@@ -147,8 +129,6 @@ const CONFIG = {
         "fullscreen-key": ConfigUtils.getPersisted("lyrics-plus:visual:fullscreen-key") || "f12",
         "synced-compact": ConfigUtils.getPersisted("lyrics-plus:visual:synced-compact") !== "false",
         "dual-genius": ConfigUtils.getPersisted("lyrics-plus:visual:dual-genius") === "true",
-        "pre-translation": ConfigUtils.getPersisted("lyrics-plus:visual:pre-translation") !== "false",
-        "pre-translation-time": ConfigUtils.getPersisted("lyrics-plus:visual:pre-translation-time") || "30",
         "global-delay": Number(ConfigUtils.getPersisted("lyrics-plus:visual:global-delay")) || 0,
         delay: 0,
         "video-background": ConfigUtils.get("lyrics-plus:visual:video-background", false),

@@ -514,7 +514,7 @@ const CollapsibleSection = ({ title, defaultOpen = true, children }) => {
 
 const ConfigHelper = () => {
 	const [activeTab, setActiveTab] = useState("general");
-	const tabKeys = ["general", "translation", "providers", "background", "appearance", "advanced"];
+	const tabKeys = ["general", "providers", "background", "appearance", "advanced"];
 
 	// General Settings
 	const generalSettings = [
@@ -534,75 +534,6 @@ const ConfigHelper = () => {
 
 	const unsyncedSettings = [
 		{ desc: getText("settings.unsyncedAutoScroll.label"), info: getText("settings.unsyncedAutoScroll.desc"), key: "unsynced-auto-scroll", type: ConfigSlider },
-	];
-
-	const preTranslationTimePresets = [10, 15, 20, 30, 45, 60, 90, 120].reduce((acc, sec) => {
-		acc[String(sec)] = `${sec} s`;
-		return acc;
-	}, {});
-
-	// Popular OpenAI-compatible endpoints. Users can still type any custom URL.
-	const ENDPOINT_PRESETS = [
-		{ value: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", label: "Google Gemini / Gemma (official)" },
-		{ value: "https://openrouter.ai/api/v1/chat/completions", label: "OpenRouter (gateway)" },
-		{ value: "https://api.deepseek.com/v1/chat/completions", label: "DeepSeek" },
-		{ value: "https://api.openai.com/v1/chat/completions", label: "OpenAI" },
-		{ value: "https://api.anthropic.com/v1/chat/completions", label: "Anthropic Claude (OpenAI-compat)" },
-	];
-
-	const MODEL_PRESETS = [
-		// Gemini 3.1 Flash-Lite — recommended default. Extremely fast, high daily limits (500 RPD).
-		{ value: "gemini-3.1-flash-lite", label: "Recommended — fast, 500 RPD free quota" },
-		// Google Gemini 2.5/3.5 — fast tiers (free-tier friendly)
-		"gemini-3.5-flash",
-		"gemini-2.5-flash",
-		"gemini-2.5-flash-lite",
-		// Google Gemini Pro — smart tiers (higher quality, 50 RPD quota)
-		"gemini-2.5-pro",
-		"gemini-1.5-pro",
-		// Gemma 4 26B A4B (MoE, ~3.88B active) — fast option with 1500 RPD limit, no thinking mode.
-		"gemma-4-26b-a4b-it",
-		// Gemma 4 31B (dense) — strongest Gemma 4 with thinking mode
-		"gemma-4-31b-it",
-		// Gemma 3 legacy (still served, useful as fallback)
-		"gemma-3-27b-it",
-		// OpenRouter (gateway namespace prefix) — current routes
-		"openai/gpt-5.4-mini",
-		"anthropic/claude-sonnet-4.6",
-		// DeepSeek — aliases auto-route to V3.2 (chat = non-thinking, reasoner = thinking)
-		"deepseek-chat",
-		"deepseek-reasoner",
-		// OpenAI GPT-5.4 family (Mar 2026)
-		"gpt-5.4",
-		"gpt-5.4-mini",
-		// Anthropic Claude 4.x (Feb–Apr 2026)
-		"claude-opus-4-7",
-		"claude-sonnet-4-6",
-		"claude-haiku-4-5",
-	];
-
-	// Translation Settings (OpenAI-compatible endpoint + keys; no proxy/official split)
-	const translationSettings = [
-		{ desc: getText("settings.apiEndpoint.label"), key: "gemini:endpoint", type: ConfigComboBox, info: getText("settings.apiEndpoint.desc"), placeholder: "https://…/v1/chat/completions", options: ENDPOINT_PRESETS },
-		{ desc: getText("settings.modelName.label"), key: "gemini:model", type: ConfigComboBox, info: getText("settings.modelName.desc"), placeholder: "gemini-3.1-flash-lite", options: MODEL_PRESETS },
-		{ desc: getText("settings.apiKey.label"), key: "gemini-api-key", type: ConfigInput, info: getText("settings.apiKey.desc"), inputType: "password", placeholder: "••••••••" },
-		{ desc: getText("settings.apiKey2.label"), key: "gemini-api-key-romaji", type: ConfigInput, info: getText("settings.apiKey2.desc"), inputType: "password", placeholder: "Optional" },
-		{ desc: getText("settings.responseMode.label"), key: "gemini:response-mode", type: ConfigSelection, options: { prompt: getText("settings.responseMode.options.prompt"), json_schema: getText("settings.responseMode.options.json_schema") }, info: getText("settings.responseMode.desc") },
-		{
-			desc: getText("settings.reasoningEffort.label"),
-			key: "gemini:reasoning-effort",
-			type: ConfigSelection,
-			options: {
-				off: getText("settings.reasoningEffort.options.off"),
-				low: getText("settings.reasoningEffort.options.low"),
-				medium: getText("settings.reasoningEffort.options.medium"),
-				high: getText("settings.reasoningEffort.options.high"),
-			},
-			info: getText("settings.reasoningEffort.desc")
-		},
-		{ desc: getText("settings.preTranslation.label"), key: "pre-translation", type: ConfigSlider, info: getText("settings.preTranslation.desc") },
-		{ desc: getText("settings.preTranslationTime.label"), key: "pre-translation-time", type: ConfigSelection, options: preTranslationTimePresets, info: getText("settings.preTranslationTime.desc"), when: () => CONFIG.visual["pre-translation"] },
-		{ desc: getText("settings.disableQueue.label"), key: "gemini:disable-queue", type: ConfigSlider, info: getText("settings.disableQueue.desc") },
 	];
 
 	// Callback - persist all settings to both storages
@@ -637,9 +568,6 @@ const ConfigHelper = () => {
 				react.createElement(CollapsibleSection, { title: getText("sections.syncedOptions") }, react.createElement(OptionList, { items: syncedSettings, onChange })),
 				react.createElement(CollapsibleSection, { title: getText("sections.unsyncedOptions") }, react.createElement(OptionList, { items: unsyncedSettings, onChange }))
 			);
-			break;
-		case "translation":
-			content = react.createElement(CollapsibleSection, { title: getText("sections.geminiApi") }, react.createElement(OptionList, { items: translationSettings, onChange }));
 			break;
 		case "providers":
 			content = react.createElement("div", null,

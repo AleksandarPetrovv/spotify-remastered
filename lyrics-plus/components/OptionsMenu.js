@@ -245,10 +245,6 @@ let adjustmentsDebounceTimeout = null;
 
 // Define static options outside component to avoid recreation
 const getStaticOptions = () => ({
-	source: {
-		traditional: "Traditional",
-		geminiVi: "AI",
-	}, 
 	translationDisplay: {
 		replace: getText("contextMenu.translationDisplay.replace", {}, "Replace original"),
 		below: getText("contextMenu.translationDisplay.below", {}, "Below original"),
@@ -262,10 +258,6 @@ const getStaticOptions = () => ({
 	},
 	modeBase: {
 		none: getText("contextMenu.modeBase.none", {}, "None"),
-	},
-	geminiModes: {
-		gemini_vi: getText("contextMenu.geminiModes.vi", {}, "Vietnamese (AI)"),
-		gemini_romaji: getText("contextMenu.geminiModes.romaji", {}, "Romaji, Romaja, Pinyin (AI)"),
 	},
 	languageModes: {
 		japanese: {
@@ -286,54 +278,14 @@ const getStaticOptions = () => ({
 	}
 });
 
-// Dynamic options for Gemini, using localized strings
-const getGeminiStyleOptions = () => ({
-	"smart_adaptive": getText("contextMenu.styles.smart_adaptive", {}, "Smart Adaptive (Recommended)"),
-	"poetic_standard": getText("contextMenu.styles.poetic_standard", {}, "Poetic & Romantic"),
-	"youth_story": getText("contextMenu.styles.youth_story", {}, "Youthful & Narrative (Anime/Indie)"),
-	"street_bold": getText("contextMenu.styles.street_bold", {}, "Bold & Street (Rap/Rock)"),
-	"vintage_classic": getText("contextMenu.styles.vintage_classic", {}, "Vintage & Classic (Classic songs)"),
-	"literal_study": getText("contextMenu.styles.literal_study", {}, "Literal (Language learning)")
-});
-
-const getGeminiPronounOptions = () => ({
-	"default": getText("contextMenu.pronouns.default", {}, "Auto (Based on content)"),
-	"anh_em": getText("contextMenu.pronouns.anh_em", {}, "Anh - Em"),
-	"em_anh": getText("contextMenu.pronouns.em_anh", {}, "Em - Anh"),
-	"to_cau": getText("contextMenu.pronouns.to_cau", {}, "Tớ - Cậu"),
-	"minh_ban": getText("contextMenu.pronouns.minh_ban", {}, "Tôi - Cậu"),
-	"toi_ban": getText("contextMenu.pronouns.toi_ban", {}, "Tôi - Bạn"),
-	"toi_em": getText("contextMenu.pronouns.toi_em", {}, "Tôi - Em"),
-	"ta_nguoi": getText("contextMenu.pronouns.ta_nguoi", {}, "Ta - Người"),
-	"tao_may": getText("contextMenu.pronouns.tao_may", {}, "Tao - Mày")
-});
-
 const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 	const items = useMemo(() => {
 		const STATIC_OPTIONS = getStaticOptions();
-		const sourceOptions = STATIC_OPTIONS.source;
 		const translationDisplayOptions = STATIC_OPTIONS.translationDisplay;
 		const languageOptions = STATIC_OPTIONS.language;
 
-		let modeOptions = { ...STATIC_OPTIONS.modeBase };
-
-		const provider = CONFIG.visual["translate:translated-lyrics-source"];
-		if (provider === "geminiVi") {
-			modeOptions = STATIC_OPTIONS.geminiModes;
-		} else if (friendlyLanguage) {
-			// Local conversions via kuromoji/OpenCC
-			modeOptions = STATIC_OPTIONS.languageModes[friendlyLanguage] || STATIC_OPTIONS.modeBase;
-		}
-
 		// Always show basic options, even when friendlyLanguage is not available
 		const baseItems = [
-			{
-				desc: react.createElement(SettingRowDescription, { icon: ICONS.provider, text: getText("contextMenu.provider") }),
-				key: "translate:translated-lyrics-source",
-				type: ConfigSelection,
-				options: sourceOptions,
-				renderInline: true,
-			},
 			{
 				desc: react.createElement(SettingRowDescription, { icon: ICONS.display, text: getText("contextMenu.display") }),
 				key: "translate:display-mode",
@@ -341,59 +293,18 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 				options: translationDisplayOptions,
 				renderInline: true,
 			},
-		];
-
-		// Add Translation Style and Pronoun Mode for Gemini Vi
-		if (provider === "geminiVi") {
-			baseItems.push(
-				{
-					desc: react.createElement(SettingRowDescription, { icon: ICONS.style, text: getText("contextMenu.style") }),
-					key: "translate:translation-style",
-					type: ConfigSelection,
-					options: getGeminiStyleOptions(),
-					renderInline: true,
-				},
-				{
-					desc: react.createElement(SettingRowDescription, { icon: ICONS.pronoun, text: getText("contextMenu.pronoun") }),
-					key: "translate:pronoun-mode",
-					type: ConfigSelection,
-					options: getGeminiPronounOptions(),
-					renderInline: true,
-				}
-			);
-		}
-
-		// Show Language Override option only for Kuromoji mode
-		if (provider !== "geminiVi") {
-			baseItems.push({
+			{
 				desc: react.createElement(SettingRowDescription, { icon: ICONS.language, text: getText("contextMenu.langOverride") }),
 				key: "translate:detect-language-override",
 				type: ConfigSelection,
 				options: languageOptions,
 				renderInline: true,
-			});
-		}
+			},
+		];
 
-		// Add language-specific display modes
+		// Add language-specific display modes (offline conversions via kuromoji/OpenCC)
 		if (friendlyLanguage) {
-			// Build combined options: Gemini + Local (if Gemini mode)
-			let combinedOptions = {};
-
-			if (provider === "geminiVi") {
-				// Add Gemini options first
-				combinedOptions = { ...STATIC_OPTIONS.geminiModes };
-				// Then add local options from Traditional mode
-				const localModes = STATIC_OPTIONS.languageModes[friendlyLanguage];
-				if (localModes) {
-					// Add separator-like label and local options
-					Object.keys(localModes).forEach(key => {
-						combinedOptions[key] = `${localModes[key]} (Local)`;
-					});
-				}
-			} else {
-				// Traditional mode - only local options
-				combinedOptions = STATIC_OPTIONS.languageModes[friendlyLanguage] || {};
-			}
+			const combinedOptions = STATIC_OPTIONS.languageModes[friendlyLanguage] || {};
 
 			// For detected CJK languages, show specific language modes
 			baseItems.push(
@@ -412,26 +323,8 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 					renderInline: true,
 				}
 			);
-		} else if (provider === "geminiVi") {
-			// For Gemini mode, show generic display modes even without detected language
-			baseItems.push(
-				{
-					desc: react.createElement(SettingRowDescription, { icon: ICONS.mode, text: getText("contextMenu.displayMode") }),
-					key: "translation-mode:gemini",
-					type: ConfigSelection,
-					options: { none: "None", ...modeOptions },
-					renderInline: true,
-				},
-				{
-					desc: react.createElement(SettingRowDescription, { icon: ICONS.mode, text: getText("contextMenu.displayMode2") }),
-					key: "translation-mode-2:gemini",
-					type: ConfigSelection,
-					options: { none: "None", ...modeOptions },
-					renderInline: true,
-				}
-			);
 		} else {
-			// For Kuromoji mode without detected language, show info message
+			// Without detected language, show info message
 			baseItems.push({
 				desc: getText("contextMenu.langInfo"),
 				key: "language-info",
@@ -443,7 +336,7 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 		}
 
 		return baseItems;
-	}, [friendlyLanguage, CONFIG.visual["translate:translated-lyrics-source"], CONFIG.visual["ui-language"]]);
+	}, [friendlyLanguage, CONFIG.visual["ui-language"]]);
 
 	// Re-dispatch dynamic items so an open modal can update its OptionList
 	useEffect(() => {
@@ -451,7 +344,7 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 			detail: { type: "translation-menu", items },
 		});
 		document.dispatchEvent(event);
-	}, [items, friendlyLanguage, CONFIG.visual["translate:translated-lyrics-source"], CONFIG.visual["ui-language"]]);
+	}, [items, friendlyLanguage, CONFIG.visual["ui-language"]]);
 
 	// Open modal on click instead of ContextMenu to avoid xpui hook errors
 	const open = () => {
@@ -459,37 +352,6 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 			// Skip processing for info-only items
 			if (name === "language-info") {
 				return;
-			}
-
-			if (name === "translate:translated-lyrics-source") {
-				// Only reset display modes when actually changing provider (not when loading new songs)
-				const currentProvider = CONFIG.visual["translate:translated-lyrics-source"];
-				if (currentProvider !== value) {
-					// Reset display modes appropriately on provider change
-					if (friendlyLanguage) {
-						const modeKey = `translation-mode:${friendlyLanguage}`;
-						const modeKey2 = `translation-mode-2:${friendlyLanguage}`;
-						CONFIG.visual[modeKey] = "none";
-						localStorage.setItem(`${APP_NAME}:visual:${modeKey}`, "none");
-						CONFIG.visual[modeKey2] = "none";
-						localStorage.setItem(`${APP_NAME}:visual:${modeKey2}`, "none");
-					}
-
-					// Reset generic Gemini display modes
-					const geminiModeKey = "translation-mode:gemini";
-					const geminiModeKey2 = "translation-mode-2:gemini";
-					CONFIG.visual[geminiModeKey] = "none";
-					localStorage.setItem(`${APP_NAME}:visual:${geminiModeKey}`, "none");
-					CONFIG.visual[geminiModeKey2] = "none";
-					localStorage.setItem(`${APP_NAME}:visual:${geminiModeKey2}`, "none");
-
-					// When switching to Gemini, reset language override to "off" since it's not needed
-					if (value === "geminiVi" && CONFIG.visual["translate:detect-language-override"] !== "off") {
-						CONFIG.visual["translate:detect-language-override"] = "off";
-						localStorage.setItem(`${APP_NAME}:visual:translate:detect-language-override`, "off");
-						Spicetify.showNotification(getText("notifications.languageOverrideReset"), false, 3000);
-					}
-				}
 			}
 
 			CONFIG.visual[name] = value;
@@ -511,22 +373,6 @@ const TranslationMenu = react.memo(({ friendlyLanguage, hasTranslation }) => {
 					window.lyricContainer.lastProcessedMode = null;
 					window.lyricContainer.forceUpdate();
 				}
-			}
-
-			// Reload lyrics when translation style or pronoun mode changes
-			if (name === "translate:translation-style" || name === "translate:pronoun-mode") {
-				if (window.lyricContainer) {
-					// DON'T clear _dmResults - keep displaying old translation while fetching new
-					// Set flags to null so lyricsSource() detects settings change and re-fetches
-					window.lyricContainer._lastStyleKey = null;
-					window.lyricContainer._lastPronounKey = null;
-					window.lyricContainer.lastProcessedUri = null;
-					window.lyricContainer.lastProcessedMode = null;
-					window.lyricContainer.forceUpdate();
-				}
-				// Don't call lyricContainerUpdate() here - it would trigger TranslationMenu re-render
-				// which could reset display modes if friendlyLanguage changes
-				return;
 			}
 
 			lyricContainerUpdate?.();

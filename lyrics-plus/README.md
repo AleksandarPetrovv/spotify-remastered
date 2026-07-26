@@ -7,10 +7,7 @@
 
 
 
-> A personalized version of **Lyrics Plus** for Spicetify, rebuilt to focus on high-quality lyric translation, ideal for Vietnamese users. Connects to any OpenAI-compatible LLM endpoint — Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic Claude, or local Ollama.
-
-> [!NOTE]
-> **Currently, the translation feature only supports Vietnamese (Tiếng Việt).** Support for other languages may be added in future updates if requested.
+> A personalized version of **Lyrics Plus** for Spicetify, rebuilt around high-quality **offline romanization**. No AI, no API keys, no accounts — everything runs locally on your machine. Read along in Romaji, Furigana, Romaja, or Pinyin, with lyric sources and community translations from multiple providers.
 
 <img width="800" height="800" alt="image" src="https://github.com/user-attachments/assets/32e85501-567d-4896-a7e4-bb4b098a30a6" />
 
@@ -18,45 +15,45 @@
 
 ## Key Features
 
-### 1. Lyric Translation with LLM API
+### 1. Offline Romanization
 
-Connects to any OpenAI-compatible LLM endpoint (Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic Claude, local Ollama, etc.) to translate lyrics naturally and accurately.
+Convert lyrics into readable pronunciation entirely on-device — no network calls, no keys, no waiting. Powered by Kuroshiro/Kuromoji, Aromanize, and OpenCC + pinyin-pro.
 
-- **Built-in endpoint & model presets** — One-click pickers for popular providers (Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Claude, Ollama) with curated model lists; custom URL/model still accepted.
-- **Dual display modes** — Romaji (Japanese), Romaja (Korean), Pinyin (Chinese) + **Vietnamese** translation — ideal for language learning.
-- **Translation Style** — 6 tones (Smart Adaptive / Poetic / Youth-Anime / Street-Rap / Vintage / Literal) to match the mood of the song.
-- **Pronoun Lock** — 9 Vietnamese pronoun pairs (Auto, Anh-Em, Tớ-Cậu, Tao-Mày…) for a consistent voice across the whole track.
-- **Pre-translation** — Translates the next track in the background before it plays, with adjustable lead time.
-- **Live AI Reasoning** — Brain icon next to the translating indicator opens a draggable window that streams the model's thinking in real time (separate tabs for translation and phonetic).
-- **Response format** — Choose Prompt Engineering (universal) or JSON Schema (stricter parsing on capable models, with automatic fallback if unsupported).
-- **High quality** — Prompts tuned for musical context, preserving meaning and emotion.
-
+- **Japanese** — Romaji, Furigana (inline `<ruby>` kanji readings), Hiragana, Katakana.
+- **Korean** — Romaja.
+- **Chinese** — Pinyin, plus Simplified ⇄ Traditional conversion.
+- **Two simultaneous display modes** — show the original alongside a romanized reading, ideal for language learning.
+- **Fast & private** — conversions happen locally and are cached, so lines appear instantly on replay.
 
 | Japanese → Romaji | Korean → Romaja | Chinese → Pinyin |
 | ----------------- | --------------- | ---------------- |
 |<img width="1919" height="1019" alt="image" src="https://github.com/user-attachments/assets/e9b7f1f5-0c3c-474d-8fe1-8e2e37552bfb" />|<img width="1919" height="1018" alt="image" src="https://github.com/user-attachments/assets/e8b56a5e-621e-420f-be68-ffc69e3236c1" />|<img width="1919" height="1019" alt="image" src="https://github.com/user-attachments/assets/a9e36436-9027-4fbe-a31d-2ffc27d97574" />|
 
+### 2. Multiple Lyric Sources & Provider Translations
 
+Pulls synced lyrics from several providers, with Spotify forced first: **Spotify**, **Musixmatch**, **lrclib**, **NetEase** (JP/KR/CN with romanization), **Genius**, and **local files**.
 
+- **Bundled provider translations** — where a source supplies them, NetEase / lrclib `tlyric` and Musixmatch translations (including Vietnamese) are fetched and displayed. These are human/community translations shipped with the lyrics, not generated.
+- **Manual NetEase search** — search and pick the right track by hand when auto-matching misses.
+- **Local file lyrics** — load `.lrc` / `.txt` files for tracks that have no online lyrics.
+- **Cache to IndexedDB** — save chosen lyrics locally so they reload instantly.
 
-
-
-### 2. Mini Lyrics in Picture-in-Picture
+### 3. Mini Lyrics in Picture-in-Picture
 
 Inject synchronized lyrics directly into Spotify's native Picture-in-Picture mini player so you can read along while working in any other app. Toggle from the PiP settings panel or with `Ctrl+Shift+M`.
 
-### 3. Video Background
+### 4. Video Background
 
 Animated YouTube music-video backdrops for the lyrics page. Adjustable scale, dim, and blur — pairs nicely with the transparent mode and any Spicetify theme.
 
 <img width="1919" height="958" alt="image" src="https://github.com/user-attachments/assets/51520969-7a8f-44e5-bf70-3262e9d658c7" />
 
-### 4. Modern Interface & Optimized Experience
+### 5. Modern Interface & Optimized Experience
 
 - **Transparent background** — harmonizes with any Spicetify theme.
 - **Auto-hiding controls** — setting buttons only appear on hover, maximizing display space.
 - **Smooth transitions** — optimized animations for seamless line transitions.
-- **Full Vietnamese UI** — complete localization for Vietnamese users 🇻🇳.
+- **Full multi-language UI** — complete localization in English, Tiếng Việt 🇻🇳, 한국어, 日本語, and 中文（简体）.
 
 ---
 
@@ -106,47 +103,38 @@ iwr -useb https://raw.githubusercontent.com/Tuna285/custom-of-lyrics-plus/main/u
 
 ## Configuration
 
-1. Open Spotify, click on your avatar → **Lyric Plus Translate config**
-2. Go to the **Translation** tab and fill in:
-  - **API Endpoint** — pick a preset (Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Claude, Ollama) or paste any OpenAI-compatible URL.
-  - **Model Name** — pick from the curated dropdown or type a custom model name.
-  - **API Key** — your provider's key (free tier available at [Google AI Studio](https://aistudio.google.com/)). Up to 2 keys for round-robin.
-  - **Response Format** — *Prompt Engineering* (works on every model) or *JSON Schema* (auto-falls back to Prompt Engineering if the model doesn't support it).
-  - **Pre-translation** — toggle on/off and pick the lead time (how many seconds before the current song ends to start translating the next one).
-3. Hover over lyrics and click the translation icon (⇄) to customize **Display Modes**, **Translation Style**, and **Pronouns**.
+Everything works out of the box — there are no keys or accounts to set up.
+
+1. Open Spotify, click on your avatar → **Lyric Plus Translate config** to adjust appearance, display modes, and provider ordering.
+2. Hover over the lyrics and click the display icon (⇄) to pick your romanization / display modes (e.g. Romaji + Furigana for Japanese, Romaja for Korean, Pinyin for Chinese).
+3. Where a provider ships a translation (NetEase / lrclib `tlyric`, Musixmatch), it appears automatically alongside the lyrics.
 4. *(Optional)* Press `Ctrl+Shift+M` while a track is playing to toggle Mini Lyrics in Picture-in-Picture.
 
 ---
 
 ## Supported Languages
 
-### Local Mode (Kuromoji, Aromanize, OpenCC)
+### Offline Modes (Kuromoji, Aromanize, OpenCC — all local)
 
+| Source Language | Display Mode 1                            | Display Mode 2                    |
+| --------------- | ----------------------------------------- | --------------------------------- |
+| Japanese (日本語)  | Romaji, Furigana, Hiragana, Katakana      | Original                          |
+| Korean (한국어)    | Romaja                                    | Original                          |
+| Chinese (中文)    | Pinyin, Simplified, Traditional           | Original                          |
 
-| Source Language | Display Mode 1                  | Display Mode 2 |
-| --------------- | ------------------------------- | -------------- |
-| Japanese (日本語)  | Romaji, Hiragana, Katakana      | -              |
-| Korean (한국어)    | Romaja                          | -              |
-| Chinese (中文)    | Pinyin, Simplified, Traditional | -              |
+### Provider Translations (fetched, not generated)
 
-
-### AI Mode (LLM Translation)
-
-
-| Source Language | Display Mode 1                  | Display Mode 2 |
-| --------------- | ------------------------------- | -------------- |
-| Japanese (日本語)  | Romaji (AI), include Local Mode | Vietnamese     |
-| Korean (한국어)    | Romaja (AI), include Local Mode | Vietnamese     |
-| Chinese (中文)    | Pinyin (AI), include Local Mode | Vietnamese     |
-| Other           | -                               | Vietnamese     |
-
+| Source                      | Translation                                             |
+| --------------------------- | ------------------------------------------------------- |
+| NetEase / lrclib (`tlyric`) | Bundled translations shipped with the lyrics (incl. Vietnamese where available) |
+| Musixmatch                  | Musixmatch translations where available                 |
 
 ---
 
 ## Credits
 
-- Original [lyrics-plus](https://github.com/spicetify/cli/tree/main/CustomApps/lyrics-plus) by Spicetify team
-- Translation powered by any OpenAI-compatible LLM (Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic, Ollama, …)
+- Original [lyrics-plus](https://github.com/spicetify/cli/tree/main/CustomApps/lyrics-plus) by the Spicetify team
+- Based on [Tuna285's Lyric Plus Translate fork](https://github.com/Tuna285/custom-of-lyrics-plus)
 - Romanization: [Kuroshiro](https://github.com/hexenq/kuroshiro), [Aromanize](https://github.com/fujaru/aromanize-js), [OpenCC](https://github.com/BYVoid/OpenCC)
 
 ---

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-07-27
+
+### Removed
+
+- **All AI / LLM translation** — Removed every OpenAI-compatible endpoint integration (Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic Claude, Ollama). The app is now fully **offline** and needs no API key, endpoint, model, or account.
+- **AI translation settings** — Removed the entire **Translation** settings tab: API endpoints/presets, model selection, API keys, multi-key rotation/failover, and response format (Prompt Engineering / JSON Schema).
+- **AI Reasoning window** — Removed the brain-icon draggable window that streamed the model's live thinking.
+- **Pre-translation** — Removed background translate-next-track and its lead-time setting.
+- **Translation Style & Pronouns** — Removed AI translation styles (Smart Adaptive / Poetic / Youth-Anime / etc.), Pronoun Lock, and reasoning-effort controls.
+- **AI-generated Vietnamese translation** and the "AI" translation source option (offline is now the only path).
+
+### Kept
+
+- **Offline romanization** — Japanese Romaji / Furigana / Hiragana / Katakana, Korean Romaja, Chinese Pinyin + Simplified/Traditional, all local (Kuroshiro/Kuromoji, Aromanize, OpenCC + pinyin-pro).
+- **Provider translations** — NetEase / lrclib `tlyric` and Musixmatch translations (fetched, not generated), including Vietnamese where a source supplies it.
+- **Lyric sources** (Spotify, Musixmatch, lrclib, NetEase, Genius, local files), video backgrounds, Mini Lyrics PiP, and the full multi-language UI localization (including Vietnamese).
+
 ## [1.8.0] - 2026-07-22
 
 ### Added

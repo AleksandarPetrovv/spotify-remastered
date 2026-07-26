@@ -7,48 +7,53 @@
 
 
 
-> Phiên bản tùy chỉnh của **Lyrics Plus** dành cho Spicetify, tập trung vào dịch lời bài hát chất lượng cao, tối ưu cho người dùng Việt Nam. Kết nối tới mọi endpoint LLM tương thích OpenAI — Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic Claude, hoặc Ollama local.
+> Phiên bản tùy chỉnh của **Lyrics Plus** dành cho Spicetify, tập trung vào **phiên âm offline** chất lượng cao. Không AI, không API key, không cần tài khoản — mọi thứ chạy hoàn toàn cục bộ trên máy bạn. Đọc lời theo Romaji, Furigana, Romaja hoặc Pinyin, kèm nhiều nguồn lời và bản dịch cộng đồng từ các provider.
 
-> [!NOTE] 
-> **Hiện tại, tính năng dịch chỉ hỗ trợ tiếng Việt.** Hỗ trợ cho các ngôn ngữ khác có thể được thêm vào trong các bản cập nhật tương lai nếu được yêu cầu.
+<img width="800" height="800" alt="image" src="https://github.com/user-attachments/assets/32e85501-567d-4896-a7e4-bb4b098a30a6" />
 
 ---
 
 ## Tính năng chính
 
-### 1. Dịch lời bài hát với LLM API
+### 1. Phiên âm offline
 
-Kết nối tới mọi endpoint LLM tương thích OpenAI (Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic Claude, Ollama local, ...) để dịch lời bài hát tự nhiên và chính xác.
+Chuyển lời bài hát thành cách đọc dễ hiểu, hoàn toàn trên máy — không gọi mạng, không key, không phải chờ. Dùng Kuroshiro/Kuromoji, Aromanize và OpenCC + pinyin-pro.
 
-- **Preset endpoint & model có sẵn** — Dropdown chọn nhanh các provider phổ biến (Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Claude, Ollama) với danh sách model gợi ý; vẫn nhập URL/model tùy ý được.
-- **Hai chế độ hiển thị** — Romaji (Nhật), Romaja (Hàn), Pinyin (Trung) + dịch sang **tiếng Việt** — lý tưởng cho việc học ngoại ngữ.
-- **Translation Style** — 6 phong cách (Tự động / Thơ-Lãng mạn / Tuổi trẻ-Anime / Mạnh mẽ-Rap / Cổ điển / Sát nghĩa) phù hợp với mood bài hát.
-- **Khóa Pronoun** — 9 cặp đại từ tiếng Việt (Tự động, Anh-Em, Tớ-Cậu, Tao-Mày, ...) giữ giọng dịch nhất quán suốt bài.
-- **Pre-translation** — Tự động dịch sẵn bài kế tiếp ở nền trước khi phát, có thể chỉnh thời gian.
-- **Xem AI Reasoning real-time** — Icon brain bên cạnh indicator mở cửa sổ kéo thả, stream quá trình suy nghĩ của model trực tiếp (tách tab cho dịch và phiên âm).
-- **Định dạng response** — Chọn Prompt Engineering (mọi model) hoặc JSON Schema (parse chắc hơn, tự fallback nếu model không hỗ trợ).
-- **Chất lượng cao** — Prompt được tinh chỉnh cho ngữ cảnh âm nhạc, giữ nguyên ý nghĩa và cảm xúc.
-
+- **Tiếng Nhật** — Romaji, Furigana (chú âm kanji inline bằng `<ruby>`), Hiragana, Katakana.
+- **Tiếng Hàn** — Romaja.
+- **Tiếng Trung** — Pinyin, kèm chuyển đổi Giản thể ⇄ Phồn thể.
+- **Hai chế độ hiển thị đồng thời** — hiện lời gốc cạnh phần phiên âm, lý tưởng cho việc học ngoại ngữ.
+- **Nhanh & riêng tư** — phiên âm chạy cục bộ và được cache, nên các dòng hiện lên tức thì khi nghe lại.
 
 | Tiếng Nhật → Romaji | Tiếng Hàn → Romaja | Tiếng Trung → Pinyin |
 | ------------------- | ------------------ | -------------------- |
-|                     |                    |                      |
+|<img width="1919" height="1019" alt="image" src="https://github.com/user-attachments/assets/e9b7f1f5-0c3c-474d-8fe1-8e2e37552bfb" />|<img width="1919" height="1018" alt="image" src="https://github.com/user-attachments/assets/e8b56a5e-621e-420f-be68-ffc69e3236c1" />|<img width="1919" height="1019" alt="image" src="https://github.com/user-attachments/assets/a9e36436-9027-4fbe-a31d-2ffc27d97574" />|
 
+### 2. Nhiều nguồn lời & bản dịch từ provider
 
-### 2. Mini Lyrics trong Picture-in-Picture
+Lấy lời đồng bộ từ nhiều provider, với Spotify được ưu tiên đầu tiên: **Spotify**, **Musixmatch**, **lrclib**, **NetEase** (JP/KR/CN kèm phiên âm), **Genius**, và **file cục bộ**.
+
+- **Bản dịch đi kèm từ provider** — nơi nguồn có sẵn, bản dịch `tlyric` của NetEase / lrclib và bản dịch Musixmatch (kể cả tiếng Việt) được tải về và hiển thị. Đây là bản dịch của con người/cộng đồng đi kèm lời bài hát, không phải do AI tạo ra.
+- **Tìm NetEase thủ công** — tự tìm và chọn đúng bài khi khớp tự động sai.
+- **Lời từ file cục bộ** — nạp file `.lrc` / `.txt` cho các bài không có lời online.
+- **Cache vào IndexedDB** — lưu lời đã chọn cục bộ để nạp lại tức thì.
+
+### 3. Mini Lyrics trong Picture-in-Picture
 
 Inject lời bài hát đồng bộ trực tiếp vào mini player Picture-in-Picture gốc của Spotify, đọc lyric trong khi làm việc khác. Bật/tắt qua panel cài đặt PiP hoặc phím tắt `Ctrl+Shift+M`.
 
-### 3. Nền video động
+### 4. Nền video động
 
 Tự động lấy MV YouTube làm nền động cho trang lyrics. Tùy chỉnh scale, dim, blur — kết hợp đẹp với chế độ trong suốt và mọi theme Spicetify.
 
-### 4. Giao diện hiện đại & Trải nghiệm tối ưu
+<img width="1919" height="958" alt="image" src="https://github.com/user-attachments/assets/51520969-7a8f-44e5-bf70-3262e9d658c7" />
+
+### 5. Giao diện hiện đại & Trải nghiệm tối ưu
 
 - **Nền trong suốt** — hài hòa với mọi theme Spicetify.
 - **Tự động ẩn điều khiển** — nút cài đặt chỉ xuất hiện khi di chuột vào, tối đa hóa không gian hiển thị.
 - **Chuyển cảnh mượt mà** — hoạt ảnh tối ưu cho việc chuyển đổi dòng lời liền mạch.
-- **Giao diện hoàn toàn Tiếng Việt** — đã localize đầy đủ cho người dùng Việt 🇻🇳.
+- **Giao diện đa ngôn ngữ đầy đủ** — đã localize hoàn chỉnh: English, Tiếng Việt 🇻🇳, 한국어, 日本語, và 中文（简体）.
 
 ---
 
@@ -94,47 +99,38 @@ iwr -useb https://raw.githubusercontent.com/Tuna285/custom-of-lyrics-plus/main/u
 
 ## Cấu hình
 
-1. Mở Spotify, nhấp vào avatar của bạn → **Lyric Plus Translate config**
-2. Vào tab **Translation** và điền:
-  - **API Endpoint** — chọn preset (Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Claude, Ollama) hoặc dán URL OpenAI-compatible bất kỳ.
-  - **Model Name** — chọn từ dropdown gợi ý hoặc nhập tên model tùy ý.
-  - **API Key** — key của provider (lấy free tại [Google AI Studio](https://aistudio.google.com/)). Hỗ trợ tối đa 2 key luân phiên.
-  - **Response Format** — *Prompt Engineering* (chạy mọi model) hoặc *JSON Schema* (tự fallback về Prompt Engineering nếu model không hỗ trợ).
-  - **Pre-translation** — bật/tắt + chọn thời gian (số giây trước khi bài hiện tại kết thúc để bắt đầu dịch bài kế).
-3. Di chuột qua lời bài hát và nhấp icon dịch (⇄) để tùy chỉnh **Display Mode**, **Translation Style**, và **Pronoun**.
+Mọi thứ hoạt động ngay từ đầu — không có key hay tài khoản nào cần thiết lập.
+
+1. Mở Spotify, nhấp vào avatar của bạn → **Lyric Plus Translate config** để chỉnh giao diện, chế độ hiển thị và thứ tự provider.
+2. Di chuột qua lời bài hát và nhấp icon hiển thị (⇄) để chọn chế độ phiên âm / hiển thị (ví dụ Romaji + Furigana cho tiếng Nhật, Romaja cho tiếng Hàn, Pinyin cho tiếng Trung).
+3. Nơi provider có sẵn bản dịch (NetEase / lrclib `tlyric`, Musixmatch), nó sẽ tự động hiện cạnh lời bài hát.
 4. *(Tùy chọn)* Nhấn `Ctrl+Shift+M` khi đang phát nhạc để bật/tắt Mini Lyrics trong Picture-in-Picture.
 
 ---
 
 ## Ngôn ngữ hỗ trợ
 
-### Chế độ Local (Kuromoji, Aromanize, OpenCC)
+### Chế độ offline (Kuromoji, Aromanize, OpenCC — hoàn toàn cục bộ)
 
+| Ngôn ngữ nguồn   | Chế độ hiển thị 1                     | Chế độ hiển thị 2 |
+| ---------------- | ------------------------------------- | ----------------- |
+| Tiếng Nhật (日本語) | Romaji, Furigana, Hiragana, Katakana  | Gốc               |
+| Tiếng Hàn (한국어)  | Romaja                                | Gốc               |
+| Tiếng Trung (中文) | Pinyin, Giản thể, Phồn thể            | Gốc               |
 
-| Ngôn ngữ nguồn   | Display Mod 1              | Display Mod 2 |
-| ---------------- | -------------------------- | ------------- |
-| Tiếng Nhật (日本語) | Romaji, Hiragana, Katakana | -             |
-| Tiếng Hàn (한국어)  | Romaja                     | -             |
-| Tiếng Trung (中文) | Pinyin, Giản thể, Phồn thể | -             |
+### Bản dịch từ provider (tải về, không phải do AI tạo)
 
-
-### Chế độ AI (Dịch bằng LLM)
-
-
-| Ngôn ngữ nguồn   | Display Mod 1              | Display Mod 2 |
-| ---------------- | -------------------------- | ------------- |
-| Tiếng Nhật (日本語) | Romaji (AI), bao gồm Local | Tiếng Việt    |
-| Tiếng Hàn (한국어)  | Romaja (AI), bao gồm Local | Tiếng Việt    |
-| Tiếng Trung (中文) | Pinyin (AI), bao gồm Local | Tiếng Việt    |
-| Khác             | -                          | Tiếng Việt    |
-
+| Nguồn                       | Bản dịch                                                |
+| --------------------------- | ------------------------------------------------------- |
+| NetEase / lrclib (`tlyric`) | Bản dịch đi kèm lời bài hát (gồm cả tiếng Việt nếu có)   |
+| Musixmatch                  | Bản dịch Musixmatch nếu có                               |
 
 ---
 
 ## Credits
 
 - Bản gốc [lyrics-plus](https://github.com/spicetify/cli/tree/main/CustomApps/lyrics-plus) bởi nhóm Spicetify
-- Dịch thuật được hỗ trợ bởi mọi LLM tương thích OpenAI (Google Gemini/Gemma, OpenRouter, OpenAI, DeepSeek, Anthropic, Ollama, ...)
+- Dựa trên [bản fork Lyric Plus Translate của Tuna285](https://github.com/Tuna285/custom-of-lyrics-plus)
 - Phiên âm: [Kuroshiro](https://github.com/hexenq/kuroshiro), [Aromanize](https://github.com/fujaru/aromanize-js), [OpenCC](https://github.com/BYVoid/OpenCC)
 
 ---

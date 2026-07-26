@@ -409,7 +409,6 @@ const AdjustmentsMenu = react.memo(({ mode }) => {
 
 		// Playback & Features
 		{ desc: getText("contextMenu.trackDelay"), key: "delay", type: ConfigAdjust, min: Number.NEGATIVE_INFINITY, max: Number.POSITIVE_INFINITY, step: 250, when: () => mode === SYNCED },
-		{ desc: getText("contextMenu.preTrans"), key: "pre-translation", type: ConfigSlider },
 
 		// Mode Specific
 		{ desc: getText("contextMenu.uAutoScroll"), key: "unsynced-auto-scroll", type: ConfigSlider, when: () => mode === UNSYNCED },

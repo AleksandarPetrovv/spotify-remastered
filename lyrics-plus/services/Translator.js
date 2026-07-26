@@ -19,20 +19,6 @@ class Translator {
 		}
 	}
 
-	// Delegate prompt building to Prompts module (for legacy direct access if any)
-	static extractGeminiJson(text) {
-		return GeminiClient.extractGeminiJson(text);
-	}
-
-	// Delegate API calls to GeminiClient
-	static promote(key) {
-		GeminiClient.promote(key);
-	}
-
-	static async callGemini(params) {
-		return GeminiClient.callGemini(params);
-	}
-
 	async awaitFinished(language) {
 		const langCode = language?.slice(0, 2);
 		if (this.initializationPromise) await this.initializationPromise;

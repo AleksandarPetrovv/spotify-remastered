@@ -978,8 +978,7 @@ class LyricsContainer extends react.Component {
       //Debug logging
 
 
-      // Reset state and apply, preserving cached translations if any
-      // Preserve existing Gemini translations if available to prevent UI flicker
+      // Reset state and apply, preserving cached translations if any.
       // Repair-on-load: cached payloads from older builds can lack startTime on
       // translated lines (esp. traditional phonetic conversion). Re-attach timing
       // from the authoritative synced/unsynced source whenever indices align.
@@ -1263,9 +1262,7 @@ class LyricsContainer extends react.Component {
     });
 
     const updateCombinedLyrics = (force = false) => {
-      // Guard clause: only skip if song has changed. Do NOT check activeRequestTimestamp
-      // here — slow Gemini responses (40s+) are still valid results for THIS song, even if
-      // lyricsSource was re-entered (e.g. by reasoning state changes triggering re-renders).
+      // Guard clause: only skip if the song has changed.
       if (this.state.uri !== uri) {
         return;
       }
@@ -1602,7 +1599,7 @@ class LyricsContainer extends react.Component {
     // Re-attach timing metadata from the original lyric lines so that downstream
     // consumers (active-line detection, click-to-seek, idle indicators) keep working.
     // Without this, traditional conversion (Kuroshiro/Pinyin) historically dropped
-    // startTime, breaking sync for local LRC files and any non-Gemini display mode.
+    // startTime, breaking sync for local LRC files and any display mode.
     const mergeTiming = (converted) => {
       if (!Array.isArray(converted)) return converted;
       return converted.map((item, i) => {
@@ -2017,7 +2014,7 @@ class LyricsContainer extends react.Component {
   /**
    * Reset translation cache for a URI
    * @param {string} uri - Spotify track URI
-   * @param {string[]|null} modesToClear - Optional specific modes to clear (e.g., ["gemini_vi", "gemini_romaji"]).
+   * @param {string[]|null} modesToClear - Optional specific display modes to clear (e.g., ["romaji", "pinyin"]).
    *                                       If null, clears ALL cache for the URI.
    */
   async resetTranslationCache(uri, modesToClear = null) {
@@ -2528,7 +2525,7 @@ class LyricsContainer extends react.Component {
     let showTranslationButton;
 
     // Get current display modes to track changes
-    // CRITICAL: Detect language directly from original raw lyrics to ensure CJK menu persists after Gemini translation.
+    // CRITICAL: Detect language directly from original raw lyrics to ensure the CJK menu persists after conversion.
     // Do NOT use provideLanguageCode here as it may return cached/stale language that was reset.
     const originalLyrics = this.state.synced || this.state.unsynced;
     const originalLanguage = originalLyrics

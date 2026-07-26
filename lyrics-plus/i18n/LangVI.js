@@ -8,17 +8,7 @@ window.LANG_VI = {
   },
   "ui": {
     "translating": "Đang dịch...",
-    "providedBy": "Lời bài hát được cung cấp bởi {provider}",
-    "reasoningTitle": "Quá trình suy nghĩ của AI",
-    "reasoningPending": "Đang chờ model trả lời. Nếu API chỉ gửi reasoning sau khi xong, nội dung sẽ hiện ở đây.",
-    "reasoningEmpty": "Không có đoạn reasoning riêng cho lần gọi này. Nhiều model không hiện thinking, hoặc prompt đang yêu cầu chỉ xuất kết quả.",
-    "reasoningTabInsights": "Ý nghĩa bài hát",
-    "reasoningTabTranslation": "Dịch",
-    "reasoningTabPhonetic": "Phiên âm",
-    "insightsLoading": "Đang dùng Google Search tra cứu ý nghĩa bài hát & từ lóng…",
-    "insightsKeyMissing": "Vui lòng nhập Gemini API Key trong Settings để dùng tính năng tra cứu.",
-    "insightsNoTrack": "Không lấy được thông tin bài hát từ Spotify.",
-    "preTranslateChip": "Tiếp: {title}"
+    "providedBy": "Lời bài hát được cung cấp bởi {provider}"
   },
   "tabs": {
     "general": "Chung",
@@ -32,7 +22,6 @@ window.LANG_VI = {
     "displayControls": "Hiển thị & Điều khiển",
     "syncedOptions": "Tùy chọn Lời bài hát (Synced)",
     "unsyncedOptions": "Tùy chọn Lời bài hát (Unsynced)",
-    "geminiApi": "API dịch thuật (LLM)",
     "serviceOrder": "Thứ tự Dịch vụ",
     "corsProxy": "CORS Proxy Template",
     "videoBackground": "Video Background",
@@ -85,53 +74,13 @@ window.LANG_VI = {
       "label": "Unsynced: Tự động cuộn",
       "desc": "Tự động cuộn theo tiến trình bài hát. Tạm dừng 5s khi cuộn thủ công."
     },
-    "apiEndpoint": {
-      "label": "API Endpoint",
-      "desc": "URL API tương thích OpenAI (<code>/v1/chat/completions</code>). Chọn preset từ dropdown hoặc dán URL tùy ý."
-    },
-    "modelName": {
-      "label": "Model Dịch Thuật",
-      "desc": "Model LLM dùng để dịch nghĩa lời nhạc (ví dụ: gemini-3.5-flash)."
-    },
-    "phoneticModelName": {
-      "label": "Model Phiên Âm",
-      "desc": "Model LLM dùng để tạo Romaji/Furigana. Nên chọn model nhẹ, nhanh (như gemini-3.5-flash-lite) để tiết kiệm quota của model dịch chính."
-    },
-    "apiKeys": {
-      "label": "Danh sách Gemini API Keys",
-      "desc": "Thêm nhiều key để tự động xoay vòng tránh lỗi giới hạn lượt dùng."
-    },
-    "responseMode": {
-      "label": "Định dạng Response",
-      "desc": "'Prompt Engineering' hoạt động với MỌI model. 'JSON Schema' cần model hỗ trợ nhưng cho kết quả ổn định hơn.",
-      "options": {
-        "prompt": "Prompt Engineering (Mọi model)",
-        "json_schema": "JSON Schema"
-      },
-      "unsupportedToast": "Model này không hỗ trợ JSON Schema — đã tự chuyển sang Prompt Engineering."
-    },
     "smartPreload": {
       "label": "Tải trước thông minh",
-      "desc": "Tự động chuẩn bị và lưu sẵn lời dịch (Gemini) và video background (YouTube) ở nền cho bài tiếp theo."
+      "desc": "Tự động chuẩn bị và lưu sẵn lời dịch và video background ở nền cho bài tiếp theo."
     },
     "smartPreloadTime": {
       "label": "Thời gian chuẩn bị trước",
       "desc": "Bắt đầu chuẩn bị bài tiếp theo trước khi bài hát hiện tại kết thúc bao nhiêu giây."
-    },
-    "disableQueue": {
-      "label": "Tắt hàng đợi (Parallel)",
-      "desc": "Xử lý song song. Nhanh hơn nhưng dễ bị giới hạn (rate limit)."
-    },
-    "reasoningEffort": {
-      "label": "Mức độ suy luận (Reasoning)",
-      "desc": "Model suy nghĩ nhiều hay ít trước khi trả lời. Thấp = nhanh hơn. 'Thấp' là sweet spot cho dịch lyric. Không tác dụng với model không có thinking mode (vd. Gemma 4 26B A4B).",
-      "options": {
-        "off": "Tắt (nhanh nhất)",
-        "low": "Thấp (khuyên dùng)",
-        "medium": "Trung bình",
-        "high": "Cao (chậm nhất, cho lyric phức tạp)"
-      },
-      "unsupportedToast": "Model này không thể tắt reasoning lúc chạy — nó vẫn sẽ suy nghĩ."
     },
     "transparentBackground": {
       "label": "Nền trong suốt",
@@ -245,7 +194,6 @@ window.LANG_VI = {
     "settingsChanged": "Cài đặt thay đổi, đang tải lại...",
     "autoCached": "Đã cache ({lines} dòng)",
     "translationFailed": "Dịch thất bại",
-    "geminiKeyMissing": "Thiếu LLM API Key. Vui lòng kiểm tra Settings.",
     "noLyricsToTranslate": "Không có lời để dịch.",
     "emptyResult": "AI trả về rỗng.",
     "lineCountMismatch": "Lỗi số dòng! Kì vọng: {expected}, Thực tế: {got}",
@@ -268,7 +216,6 @@ window.LANG_VI = {
     "failedReadClipboard": "Không thể đọc clipboard. Vui lòng dán thủ công.",
     "videoSetSaved": "Đã chọn Video: {videoId} (đã lưu)",
     "translationFailedWithReason": "{mode} thất bại: {reason}",
-    "languageOverrideReset": "Ghi đè Ngôn ngữ được đặt lại thành 'Tắt' cho chế độ AI",
     "stillConverting": "Vẫn đang chuyển đổi...",
     "pinyinLibraryUnavailable": "Thư viện Pinyin không khả dụng. Đang hiển thị bản gốc. Cho phép jsDelivr hoặc unpkg.",
     "conversionSkippedAlreadySimplified": "Bỏ qua chuyển đổi: Đã ở dạng tiếng Trung giản thể",
@@ -285,8 +232,6 @@ window.LANG_VI = {
   "contextMenu": {
     "provider": "Nguồn dịch",
     "display": "Kiểu hiển thị",
-    "style": "Văn phong",
-    "pronoun": "Xưng hô",
     "langOverride": "Ghi đè Ngôn ngữ",
     "displayMode": "Chế độ hiển thị",
     "displayMode2": "Chế độ hiển thị 2",
@@ -313,30 +258,6 @@ window.LANG_VI = {
     },
     "modeBase": {
       "none": "Không"
-    },
-    "geminiModes": {
-      "romaji": "Romaji, Romaja, Pinyin (AI)",
-      "vi": "Tiếng Việt (AI)",
-      "furigana": "Furigana (AI)"
-    },
-    "styles": {
-      "smart_adaptive": "Tự động (Đề xuất)",
-      "poetic_standard": "Thơ & Lãng mạn",
-      "youth_story": "Tuổi trẻ & Tự sự (Anime/Indie)",
-      "street_bold": "Mạnh mẽ & Bụi bặm (Rap/Rock)",
-      "vintage_classic": "Cổ điển (Nhạc xưa)",
-      "literal_study": "Dịch sát nghĩa (Học ngôn ngữ)"
-    },
-    "pronouns": {
-      "default": "Tự động (Dựa theo nội dung)",
-      "anh_em": "Anh - Em",
-      "em_anh": "Em - Anh",
-      "to_cau": "Tớ - Cậu",
-      "minh_ban": "Tôi - Cậu",
-      "toi_ban": "Tôi - Bạn",
-      "toi_em": "Tôi - Em",
-      "ta_nguoi": "Ta - Người",
-      "tao_may": "Tao - Mày"
     }
   },
   "tooltips": {
@@ -348,12 +269,9 @@ window.LANG_VI = {
     "loadFile": "Nhập file local (.lrc)",
     "resetCache": "Xóa cache dịch",
     "openSettings": "Mở Cài đặt",
-    "preTransNext": "Bài tiếp theo đã được dịch trước",
-    "preTranslateChip": "AI đang dịch sẵn bài tiếp theo (nền)",
     "copy": "Sao chép",
     "searchYoutube": "Tìm kiếm trên YouTube",
-    "searchNetease": "Tìm Lyrics trên NetEase",
-    "viewReasoning": "Xem quá trình suy nghĩ"
+    "searchNetease": "Tìm Lyrics trên NetEase"
   },
   "providers": {
     "local": { "name": "local", "desc": "Cung cấp lời bài hát từ cache/tệp cục bộ đã tải ở các phiên Spotify trước." },

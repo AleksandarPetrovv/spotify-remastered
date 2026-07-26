@@ -7,17 +7,7 @@ window.LANG_EN = {
   },
   "ui": {
     "translating": "Translating...",
-    "providedBy": "Lyrics provided by {provider}",
-    "reasoningTitle": "AI Reasoning Process",
-    "reasoningPending": "Still waiting for the model response. If your endpoint returns reasoning only after the full reply, text will appear here when ready.",
-    "reasoningEmpty": "No separate reasoning text for this response. Many models hide thinking, or your prompt asks for output only.",
-    "reasoningTabInsights": "Song Insights",
-    "reasoningTabTranslation": "Translation",
-    "reasoningTabPhonetic": "Phonetic",
-    "insightsLoading": "Searching song background and lyric notes via Google Search…",
-    "insightsKeyMissing": "Please enter a Gemini API Key in Settings to use Song Insights.",
-    "insightsNoTrack": "Could not retrieve track information from Spotify.",
-    "preTranslateChip": "Next: {title}"
+    "providedBy": "Lyrics provided by {provider}"
   },
   "tabs": {
     "general": "General",
@@ -31,7 +21,6 @@ window.LANG_EN = {
     "displayControls": "Display & Controls",
     "syncedOptions": "Synced Lyrics Options",
     "unsyncedOptions": "Unsynced Lyrics Options",
-    "geminiApi": "LLM API",
     "serviceOrder": "Service Order & Toggle",
     "corsProxy": "CORS Proxy Template",
     "videoBackground": "Video Background",
@@ -84,31 +73,6 @@ window.LANG_EN = {
       "label": "Unsynced: Smart auto-scroll",
       "desc": "Automatically scroll unsynced lyrics based on song progress. Pauses for 5 seconds when you manually scroll."
     },
-    "apiEndpoint": {
-      "label": "API Endpoint",
-      "desc": "OpenAI-compatible API URL (<code>/v1/chat/completions</code>). Pick a preset from the dropdown or paste a custom URL."
-    },
-    "modelName": {
-      "label": "Translation Model",
-      "desc": "LLM model for translating song lyrics (e.g. gemini-3.5-flash)."
-    },
-    "phoneticModelName": {
-      "label": "Phonetic Model",
-      "desc": "LLM model for generating Romaji/Furigana. Use a light, fast model (e.g. gemini-3.5-flash-lite) to save premium quota."
-    },
-    "apiKeys": {
-      "label": "Gemini API Keys",
-      "desc": "Add multiple keys to auto-rotate and avoid rate limits."
-    },
-    "responseMode": {
-      "label": "Response Format",
-      "desc": "'Prompt Engineering' works with ALL models. 'JSON Schema' requires model support but produces more reliable structured output.",
-      "options": {
-        "prompt": "Prompt Engineering (Universal)",
-        "json_schema": "JSON Schema"
-      },
-      "unsupportedToast": "This model doesn't support JSON Schema — auto-switched to Prompt Engineering."
-    },
     "smartPreload": {
       "label": "Smart Pre-load",
       "desc": "Prepare and cache lyrics translation & video background for the next song in the background."
@@ -116,21 +80,6 @@ window.LANG_EN = {
     "smartPreloadTime": {
       "label": "Pre-load Trigger Time",
       "desc": "How long before the current song ends to start preloading the next track."
-    },
-    "disableQueue": {
-      "label": "Disable Queue (Parallel Requests)",
-      "desc": "Process all translation requests in parallel without queuing. May hit rate limits faster but translates quicker."
-    },
-    "reasoningEffort": {
-      "label": "Reasoning Effort",
-      "desc": "How much thinking the model does before answering. Lower = faster. 'Low' is the sweet spot for lyric translation. Ignored by models without thinking mode (e.g. Gemma 4 26B A4B).",
-      "options": {
-        "off": "Off (fastest)",
-        "low": "Low (recommended)",
-        "medium": "Medium",
-        "high": "High (slowest, for complex lyrics)"
-      },
-      "unsupportedToast": "This model's reasoning cannot be disabled at runtime — it will still think."
     },
     "transparentBackground": {
       "label": "Transparent Background",
@@ -251,7 +200,6 @@ window.LANG_EN = {
     "settingsChanged": "Settings changed, re-fetching...",
     "autoCached": "Auto-cached lyrics ({lines} lines)",
     "translationFailed": "Translation failed",
-    "geminiKeyMissing": "LLM API key missing. Please add at least one key in Settings.",
     "noLyricsToTranslate": "No lyrics to translate.",
     "emptyResult": "Empty result from AI.",
     "lineCountMismatch": "Line count mismatch! Expected: {expected}, Got: {got}",
@@ -274,7 +222,6 @@ window.LANG_EN = {
     "failedReadClipboard": "Failed to read clipboard. Please paste manually.",
     "videoSetSaved": "Video set: {videoId} (saved)",
     "translationFailedWithReason": "{mode} failed: {reason}",
-    "languageOverrideReset": "Language Override reset to 'Off' for AI mode",
     "stillConverting": "Still converting...",
     "pinyinLibraryUnavailable": "Pinyin library unavailable. Showing original. Allow jsDelivr or unpkg.",
     "conversionSkippedAlreadySimplified": "Conversion skipped: Already in Simplified Chinese",
@@ -291,8 +238,6 @@ window.LANG_EN = {
   "contextMenu": {
     "provider": "Translation Provider",
     "display": "Translation Display",
-    "style": "Translation Style",
-    "pronoun": "Pronoun Mode",
     "langOverride": "Language Override",
     "displayMode": "Display Mode",
     "displayMode2": "Display Mode 2",
@@ -319,30 +264,6 @@ window.LANG_EN = {
     },
     "modeBase": {
       "none": "None"
-    },
-    "geminiModes": {
-      "romaji": "Romaji, Romaja, Pinyin (AI)",
-      "vi": "Vietnamese (AI)",
-      "furigana": "Furigana (AI)"
-    },
-    "styles": {
-      "smart_adaptive": "Smart Adaptive (Recommended)",
-      "poetic_standard": "Poetic & Romantic",
-      "youth_story": "Youthful & Narrative (Anime/Indie)",
-      "street_bold": "Bold & Street (Rap/Rock)",
-      "vintage_classic": "Vintage & Classic (Classic songs)",
-      "literal_study": "Literal (Language learning)"
-    },
-    "pronouns": {
-      "default": "Auto (Based on content)",
-      "anh_em": "Anh - Em",
-      "em_anh": "Em - Anh",
-      "to_cau": "Tớ - Cậu",
-      "minh_ban": "Tôi - Cậu",
-      "toi_ban": "Tôi - Bạn",
-      "toi_em": "Tôi - Em",
-      "ta_nguoi": "Ta - Người",
-      "tao_may": "Tao - Mày"
     }
   },
   "tooltips": {
@@ -354,12 +275,9 @@ window.LANG_EN = {
     "loadFile": "Load lyrics from file",
     "resetCache": "Reset translation cache",
     "openSettings": "Open Settings",
-    "preTransNext": "Next song pre-translated",
-    "preTranslateChip": "AI is preparing the next track in the background",
     "copy": "Copy to clipboard",
     "searchYoutube": "Search on YouTube",
-    "searchNetease": "Search on NetEase",
-    "viewReasoning": "View AI reasoning"
+    "searchNetease": "Search on NetEase"
   },
   "videoModal": {
     "title": "Video Background",

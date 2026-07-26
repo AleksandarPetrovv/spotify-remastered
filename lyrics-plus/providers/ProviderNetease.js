@@ -24,7 +24,9 @@ const ProviderNetease = (() => {
     }
 
     async function fetchLyricsById(id) {
-        const url = `https://music.163.com/api/song/lyric?id=${id}&lv=1&kv=1&tv=-1`;
+        // rv=-1 also requests NetEase's official romanized lyrics (romalrc) when
+        // they exist — human-made romaji, far more accurate than computing it.
+        const url = `https://music.163.com/api/song/lyric?id=${id}&lv=1&kv=1&tv=-1&rv=-1`;
         const headers = { ...BASE_HEADERS };
         const token = typeof CONFIG !== "undefined" && CONFIG?.providers?.netease?.token;
         if (token) {
@@ -210,6 +212,16 @@ const ProviderNetease = (() => {
                 neteaseTranslation = transResult.synced || transResult.unsynced || null;
             }
 
+            // Official romanized lyrics (romalrc): human-made romaji, so when present
+            // it beats offline kuromoji romanization. Parsed as its own timestamped
+            // track; index.js aligns it to the synced lines by timestamp when the
+            // user turns on Romaji.
+            let neteaseRomanized = null;
+            if (lyricData?.romalrc?.lyric && lyricData.romalrc.lyric !== rawLrc) {
+                const romaResult = parseLyrics(lyricData.romalrc.lyric);
+                neteaseRomanized = romaResult.synced || romaResult.unsynced || null;
+            }
+
             if (!synced && unsynced && neteaseTranslation && neteaseTranslation.some(l => l.startTime !== undefined)) {
                 // If original is unsynced but translation is synced, copy timestamps
                 const newSynced = unsynced.map((line, idx) => {
@@ -232,6 +244,7 @@ const ProviderNetease = (() => {
                 unsynced,
                 genius:            null,
                 neteaseTranslation,
+                neteaseRomanized,
                 _neteaseId:        songId,
                 _neteaseScore:     picked.score,
             };

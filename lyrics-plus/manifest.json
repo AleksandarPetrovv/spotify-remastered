@@ -11,6 +11,8 @@
     "assets/libs/aromanize.min.js",
     "assets/libs/opencc.min.js",
     "assets/libs/pinyin-pro.min.js",
+    "assets/kanji-readings.js",
+    "assets/homographs.js",
     "utils/Namespace.js",
     "i18n/LangEN.js",
     "i18n/LangVI.js",

@@ -21,7 +21,11 @@ const LRCParser = {
             // Remove metadata lines (credits/composer etc.)
             const textOnly = line.replace(/\[[^\]]+\]/g, "").trim();
             const isMetadata = /^(作词|作曲|编曲|演唱|制作|人声|后期|混音|母带|作詞|作曲|編曲|歌詞|Lyricist|Composer|Arranger|Producer|Lyrics|Vocals|Mixer|Mastering|Lời|Nhạc|Phối khí|Trình bày|Sáng tác)\s*[:：]/i.test(textOnly);
-            return !isMetadata;
+            // Also drop "<artist> feat. <vocalist>" credit lines (common as the first
+            // NetEase line, e.g. "ゆよゆっぺ feat.初音ミクAppend") — a "feat."/"ft." token
+            // is virtually never part of a sung lyric line.
+            const isCredit = /(?:^|[\s　])(?:feat|ft)[.．・]/i.test(textOnly);
+            return !isMetadata && !isCredit;
         });
 
 

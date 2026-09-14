@@ -118,7 +118,7 @@ Copy-Item $dlVbs $dlStartupVbs -Force
 $wshell = New-Object -ComObject WScript.Shell
 $premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 
-$spotxFlags = @('-podcasts_off', '-block_update_off', '-confirm_spoti_recomended_over')
+$spotxFlags = @('-podcasts_off', '-block_update_off', '-confirm_spoti_recomended_over', '-defender_exclusions_off')
 if ($premiumResponse -eq 6) { $spotxFlags += '-premium' }
 $spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
 if (-not (Test-Path -LiteralPath $spotifyPath -PathType Container)) { throw 'Could not locate Spotify for patch backup.' }

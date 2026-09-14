@@ -2,8 +2,7 @@
     while (
         !window.Spicetify ||
         !Spicetify.ContextMenuV2 ||
-        !Spicetify.URI ||
-        !Spicetify.showNotification
+        !Spicetify.React
     ) {
         await new Promise(function(r) { setTimeout(r, 100); });
     }
@@ -30,6 +29,25 @@
         };
         var element = Spicetify.React.createElement(component);
         this.register = function() { Spicetify.ContextMenuV2.registerItem(element, options.shouldAdd); };
+    }
+
+    var noticeTimer;
+    function showDownloadNotice(message, error) {
+        if (typeof Spicetify.showNotification === 'function') {
+            Spicetify.showNotification(message, error);
+            return;
+        }
+        var notice = document.getElementById('spotdl-notice');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'spotdl-notice';
+            notice.style.cssText = 'position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:9999;background:#202020;color:#fff;padding:12px 20px;border-radius:8px;max-width:80vw;box-shadow:0 4px 16px #0008';
+            document.body.appendChild(notice);
+        }
+        notice.setAttribute('role', error ? 'alert' : 'status');
+        notice.textContent = message;
+        clearTimeout(noticeTimer);
+        noticeTimer = setTimeout(function() { notice.remove(); }, 5000);
     }
 
     function closeDownloadMenu() {
@@ -214,7 +232,7 @@
         try {
             var result = await helperRequest('open-folder?id=' + encodeURIComponent(id) + '&kind=' + kind, 8000);
             if (result.status !== 'opened') throw new Error(result.message || 'Could not open the download folder.');
-        } catch (e) { Spicetify.showNotification(e.message || 'Could not open the download folder.', true); }
+        } catch (e) { showDownloadNotice(e.message || 'Could not open the download folder.', true); }
     }
 
     function updateNotif() {
@@ -303,7 +321,7 @@
                     var result = await helperRequest('cancel?id=' + encodeURIComponent(job.id), 8000);
                     if (result.status !== 'cancelled') throw new Error('Could not cancel the download.');
                     if (activeDownloads.get(job.id) === job.dl) job.dl.finish('cancelled');
-                } catch (e) { Spicetify.showNotification('Could not cancel the download. Try again.', true); }
+                } catch (e) { showDownloadNotice('Could not cancel the download. Try again.', true); }
             }));
         });
         notifEl.append(icon, copy, cancel);
@@ -397,13 +415,13 @@
         try {
             data = await helperRequest('download?id=' + encodeURIComponent(trackId), 180000);
         } catch (e) {
-            Spicetify.showNotification('Could not reach the download helper. Please try again.', true);
+            showDownloadNotice('Could not reach the download helper. Please try again.', true);
             return;
         }
         if (data.status === 'no_folder' || data.status === 'cancelled') return;
         closeDownloadMenu();
         if (data.status !== "started" && data.status !== 'already_downloading') {
-            Spicetify.showNotification(data.message || 'Could not start the download.', true);
+            showDownloadNotice(data.message || 'Could not start the download.', true);
             return;
         }
 
@@ -420,7 +438,7 @@
             state.status = status;
             state.message = message;
             clearTimeout(state.poll);
-            if (message) Spicetify.showNotification(message, status === 'error');
+            if (message) showDownloadNotice(message, status === 'error');
             updateNotif();
         }
         state.finish = finish;
@@ -462,7 +480,7 @@
         onClick: function(context) {
             var track = trackForMenu(context.props, context.target);
             if (track) startSong(track, context);
-            else Spicetify.showNotification('Could not identify the song to download.', true);
+            else showDownloadNotice('Could not identify the song to download.', true);
         },
         shouldAdd: function(props, trigger, target) { return !!trackForMenu(props, target); }
     });
@@ -537,7 +555,7 @@
                 state.finish('Download cancelled', false);
             } catch (e) {
                 cancel.disabled = false;
-                Spicetify.showNotification('Could not cancel the download. Try again.', true);
+                showDownloadNotice('Could not cancel the download. Try again.', true);
             }
         };
         actions.append(open);
@@ -574,7 +592,7 @@
             clearTimeout(state.poll);
             if (!state.ui) {
                 collectionDownloads.delete(state.id);
-                if (error) Spicetify.showNotification(message, true);
+                if (error) showDownloadNotice(message, true);
                 return;
             }
             state.ui.status.textContent = message;

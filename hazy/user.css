@@ -2477,6 +2477,19 @@ a[href="/marketplace"] {
 CONTEXT MENUS
 -----------------*/
 
+ul[role="menu"][data-depth] {
+  background: #282828 !important;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 16px 24px rgba(0, 0, 0, .3);
+}
+
+ul[role="menu"][data-depth] [role="menuitem"] {
+  min-height: 40px;
+  border-radius: 3px;
+}
+
 div#context-menu:before,
 .main-contextMenu-menu:before,
 .Dropdown-menu:before,

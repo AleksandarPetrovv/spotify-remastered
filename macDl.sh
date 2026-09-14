@@ -40,7 +40,7 @@ rollback() {
     exit "$result"
 }
 trap rollback EXIT
-curl -fL --retry 2 -o "$temporary/source.zip" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.8.zip"
+curl -fL --retry 2 -o "$temporary/source.zip" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.9.zip"
 unzip -q "$temporary/source.zip" -d "$temporary/source"
 sources=("$temporary/source"/*)
 if [ "${#sources[@]}" -ne 1 ] || [ ! -d "${sources[0]}" ]; then echo 'Invalid release archive.' >&2; exit 1; fi

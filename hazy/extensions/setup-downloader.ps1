@@ -10,10 +10,17 @@ if (Test-Path -LiteralPath (Join-Path $dependencies 'python')) {
 foreach ($name in @('python3.exe','python.exe')) {
     $command = Get-Command $name -ErrorAction SilentlyContinue
     if ($command -and $command.Source -notlike '*WindowsApps*') { $candidates += $command.Source }
+    elseif ($command) {
+        $packages = @(Get-AppxPackage -Name 'PythonSoftwareFoundation.Python.*' -ErrorAction SilentlyContinue)
+        foreach ($package in $packages) {
+            $candidates += Join-Path $env:LOCALAPPDATA ("Microsoft\WindowsApps\" + $package.PackageFamilyName + '\python.exe')
+        }
+    }
 }
 foreach ($candidate in $candidates) {
     if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
-    & $candidate -c 'import sys,venv; sys.exit(not ((3,11) <= sys.version_info[:2] <= (3,13)))' 2>$null
+    try { & $candidate -c 'import sys,venv; sys.exit(not ((3,11) <= sys.version_info[:2] <= (3,13)))' 2>$null }
+    catch { continue }
     if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
 }
 if (-not $python) {
@@ -29,10 +36,17 @@ if (-not $python) {
     $previousUvRoot = $env:UV_PYTHON_INSTALL_DIR
     try {
         $env:UV_PYTHON_INSTALL_DIR = Join-Path $dependencies 'python'
-        & $uv python install 3.12
-        if ($LASTEXITCODE -ne 0) { throw 'Could not install the managed Python runtime.' }
-        $python = (& $uv python find --managed-python 3.12 | Select-Object -Last 1).Trim()
-        if ($LASTEXITCODE -ne 0) { throw 'Could not locate the managed Python runtime.' }
+        & $uv python install 3.12 --no-bin --no-registry
+        $installExit = $LASTEXITCODE
+        foreach ($directory in @(Get-ChildItem -LiteralPath $env:UV_PYTHON_INSTALL_DIR -Directory -ErrorAction SilentlyContinue)) {
+            if ($directory.Attributes -band [IO.FileAttributes]::ReparsePoint) { continue }
+            $candidate = Join-Path $directory.FullName 'python.exe'
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            try { & $candidate -c 'import sys,venv; sys.exit(not ((3,11) <= sys.version_info[:2] <= (3,13)))' 2>$null }
+            catch { continue }
+            if ($LASTEXITCODE -eq 0) { $python = $candidate; break }
+        }
+        if (-not $python) { throw "Could not install a working managed Python runtime (uv exit $installExit)." }
     } finally { $env:UV_PYTHON_INSTALL_DIR = $previousUvRoot }
 }
 & $python (Join-Path $PSScriptRoot 'setup-downloader.py') $Root

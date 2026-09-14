@@ -295,10 +295,18 @@
                     onFocus:()=>setVisible(true),onBlur:()=>setVisible(false),onClick:()=>setVisible(false)
                 }));
         }
-        root.render(Spicetify.React.createElement(Tooltip));
+        Spicetify.ReactDOM.flushSync(()=>root.render(Spicetify.React.createElement(Tooltip)));
     }
-    let scheduled=false;
-    async function mount() {
+    const playlistMetadata=new Map();
+    const metadataPending=new Set();
+    Spicetify.Platform.RootlistAPI.getContents().then(function prime(list){
+        for(const item of list.items || []){
+            if(item.type==='playlist' && item.isOwnedBySelf)playlistMetadata.set(item.uri,{name:item.name,canEditItems:true});
+            if(item.items)prime(item);
+        }
+        mount();
+    }).catch(()=>{});
+    function mount() {
         for (const [host, root] of tooltipRoots) {
             if (!host.isConnected) {root.unmount();tooltipRoots.delete(host);}
         }
@@ -308,15 +316,19 @@
             || [...document.querySelectorAll('.main-actionBar-ActionBar button')].find(button => button.getAttribute('aria-label')?.startsWith('More options'));
         if(!menu || menu.parentElement.querySelector('.sr-link-button'))return;
         const uri='spotify:playlist:'+match[1];
-        let metadata;
-        try{metadata=await Spicetify.Platform.PlaylistAPI.getMetadata(uri);}catch{return;}
-        if(Spicetify.Platform.History.location.pathname.indexOf(match[1])<0 || !menu.isConnected)return;
-        if(!metadata.canEditItems)return;
-        if(menu.parentElement.querySelector('.sr-link-button'))return;
+        let metadata=playlistMetadata.get(uri);
+        if(!metadataPending.has(uri)){
+            metadataPending.add(uri);
+            Spicetify.Platform.PlaylistAPI.getMetadata(uri).then(value=>{playlistMetadata.set(uri,value);mount();}).catch(()=>{});
+        }
+        if(!metadata && menu.parentElement.querySelector('button[aria-label^="Invite collaborators"]')){
+            metadata={canEditItems:true,name:document.querySelector('.main-entityHeader-title h1')?.textContent || 'Playlist'};
+        }
+        if(!metadata?.canEditItems)return;
         const button=element('button',null,'sr-link-button');button.type='button';button.setAttribute('aria-label','Add from YouTube or SoundCloud');button.innerHTML=icon;
         button.onclick=()=>showImport(uri,metadata.name || 'Playlist');attachTooltip(button,menu);
     }
-    function schedule(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;mount();},150);}
+    function schedule(){mount();}
     new MutationObserver(schedule).observe(document.querySelector('.Root__main-view') || document.body,{childList:true,subtree:true});
     Spicetify.Platform.History.listen(schedule);schedule();
 })();

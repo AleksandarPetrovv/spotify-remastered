@@ -22,7 +22,7 @@
                     onBlur: function(e) { e.currentTarget.style.background = 'transparent'; },
                     onClick: function() {
                         options.onClick(context);
-                        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+                        closeDownloadMenu();
                     }
                 }, Spicetify.React.createElement('span', { style: {display:'flex',width:'16px',height:'16px',flexShrink:0},
                     dangerouslySetInnerHTML: { __html: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">' + Spicetify.SVGIcons.download + '</svg>' } }),
@@ -30,6 +30,16 @@
         };
         var element = Spicetify.React.createElement(component);
         this.register = function() { Spicetify.ContextMenuV2.registerItem(element, options.shouldAdd); };
+    }
+
+    function closeDownloadMenu() {
+        if (!document.querySelector('[role="menu"]')) return;
+        (document.activeElement || document.body).dispatchEvent(new KeyboardEvent('keydown', {
+            key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true
+        }));
+        document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerType: 'mouse', button: 0, isPrimary: true }));
+        document.body.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+        document.body.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerType: 'mouse', button: 0, isPrimary: true }));
     }
 
     var activeDownloads = new Map();
@@ -89,21 +99,28 @@
         return str.length > max ? str.slice(0, max - 1) + "…" : str;
     }
 
-    function coverFor(item) {
-        if (!item) return '';
+    function coversFor(item) {
+        if (!item) return [];
+        var covers = [];
         var sources = [].concat(item.images || [], item.album && item.album.images || [],
             item.albumOfTrack && item.albumOfTrack.coverArt && item.albumOfTrack.coverArt.sources || [],
-            item.coverArt && item.coverArt.sources || []);
+            item.coverArt && (item.coverArt.sources || item.coverArt) || [],
+            item.image || [], item.imageUrl || [], item.picture || []);
         for (var i = 0; i < sources.length; i++) {
-            var url = sources[i].url;
+            var url = typeof sources[i] === 'string' ? sources[i] : sources[i] && (sources[i].url || sources[i].uri);
             if (typeof url !== 'string') continue;
-            if (url.indexOf('spotify:image:') === 0) return 'https://i.scdn.co/image/' + url.slice(14);
-            if (/^https?:\/\//.test(url)) return url;
+            if (url.indexOf('spotify:image:') === 0) url = 'https://i.scdn.co/image/' + url.slice(14);
+            if (url.indexOf('spotify:mosaic:') === 0) url = 'https://mosaic.scdn.co/300/' + url.slice(15).replace(/:/g, '');
+            if (/^https?:\/\//.test(url)) covers.push(url);
         }
-        return '';
+        return Array.from(new Set(covers));
     }
 
+    function coverFor(item) { return coversFor(item)[0] || ''; }
+
     function toastIcon(icon, markup, cover) {
+        var candidates = Array.isArray(cover) ? cover.slice() : [cover];
+        cover = candidates.shift() || '';
         if (icon.statusEl) icon.statusEl.remove();
         icon.statusEl = null;
         icon.replaceChildren();
@@ -118,6 +135,7 @@
             image.alt = '';
             image.style.cssText = 'width:40px;height:40px;object-fit:cover;border-radius:6px';
             image.onerror = function() {
+                if (candidates.length) { image.src = candidates.shift(); return; }
                 image.remove();
                 icon.style.width = icon.style.height = '22px';
                 icon.appendChild(badge);
@@ -383,6 +401,7 @@
             return;
         }
         if (data.status === 'no_folder' || data.status === 'cancelled') return;
+        closeDownloadMenu();
         if (data.status !== "started" && data.status !== 'already_downloading') {
             Spicetify.showNotification(data.message || 'Could not start the download.', true);
             return;
@@ -468,7 +487,7 @@
         if (!stack) {
             var style = document.getElementById('spotdl-playlist-style') || document.createElement('style');
             style.id = 'spotdl-playlist-style';
-            style.textContent = '#spotdl-playlists{position:fixed;bottom:100px;right:8px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-height:70vh;overflow:auto}'
+            style.textContent = '#spotdl-playlists{position:fixed;bottom:100px;right:8px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;max-height:70vh;overflow-x:hidden;overflow-y:auto;scrollbar-width:none}#spotdl-playlists::-webkit-scrollbar{display:none;width:0;height:0}'
 ;
             document.head.appendChild(style);
             stack = document.createElement('div');
@@ -560,7 +579,7 @@
             }
             state.ui.status.textContent = message;
             state.ui.heading.hidden = true;
-            toastIcon(state.ui.icon, error ? '<span style="font-size:22px">!</span>' : message === 'Download cancelled' ? '<span style="font-size:22px">\u00d7</span>' : successMarkup, state.cover);
+            toastIcon(state.ui.icon, error ? '<span style="font-size:22px">!</span>' : message === 'Download cancelled' ? '<span style="font-size:22px">\u00d7</span>' : successMarkup, state.collectionCovers);
             state.ui.cancel.disabled = false;
             state.ui.cancel.setAttribute('aria-label', 'Dismiss ' + state.type + ' download');
             state.ui.cancel.title = 'Dismiss';
@@ -573,9 +592,17 @@
         };
         try {
             var selection = await helperRequest('playlist-folder', 180000);
+            closeDownloadMenu();
             if (selection.status === 'no_folder') { state.finish('Cancelled.'); return; }
             if (selection.status !== 'selected') throw new Error(selection.message || 'Could not open the folder picker.');
             var uri = 'spotify:' + collection.type + ':' + collection.id;
+            var pageCover = '';
+            if (Spicetify.Platform.History.location.pathname === '/' + collection.type + '/' + collection.id) {
+                var headerImage = document.querySelector('.main-entityHeader-image img, img.main-entityHeader-image, .main-entityHeader-imageContainer img');
+                if (headerImage && headerImage.complete && headerImage.naturalWidth) pageCover = headerImage.currentSrc || headerImage.src;
+            }
+            var placeholder = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect width="40" height="40" rx="6" fill="#333"/><path d="M24 10v18a4 4 0 1 1-2-3.46V13l-8 2v11a4 4 0 1 1-2-3.46V13z" fill="#bbb"/></svg>');
+            state.collectionCovers = [pageCover, placeholder].filter(Boolean);
             var tracks = [];
             var localSongs = null;
             var offset = 0;
@@ -584,6 +611,7 @@
             if (!album) {
                 var meta = await withTimeout(Spicetify.Platform.PlaylistAPI.getMetadata(uri), 20000);
                 state.name = meta.name || 'Playlist';
+                state.collectionCovers = Array.from(new Set([pageCover].concat(coversFor(meta), [placeholder]).filter(Boolean)));
             }
             while (!state.cancelled) {
                 var page;
@@ -594,6 +622,7 @@
                     if (!info || !info.name) throw new Error('Could not read the album.');
                     state.name = info.name;
                     albumCover = albumCover || coverFor(info);
+                    state.collectionCovers = Array.from(new Set([pageCover].concat(coversFor(info), [placeholder]).filter(Boolean)));
                     var albumTracks = info.tracksV2 || info.tracks;
                     if (!albumTracks || !Array.isArray(albumTracks.items)) throw new Error('Could not read the album tracks.');
                     page = { items: albumTracks.items.map(function(entry) { return entry.track || entry; }), totalLength: albumTracks.totalCount };
@@ -629,6 +658,7 @@
             if (!tracks.length) { state.finish('No downloadable songs in this ' + state.type + '.', true); return; }
             var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks, folderToken: selection.token });
             if (data.status === 'no_folder' || data.status === 'cancelled') { state.finish('Cancelled.'); return; }
+            closeDownloadMenu();
             if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the download. Update the download helper and try again.');
             state.helperStarted = true;
             state.total = tracks.length;
@@ -662,8 +692,7 @@
                     }
                     state.ui.status.textContent = state.song ? state.song.name : state.name;
                     state.ui.status.title = state.ui.status.textContent;
-                    state.ui.detail.textContent = completed + ' of ' + result.total + ' · ' + result.saved + ' saved'
-                        + (result.skipped ? ' · ' + result.skipped + ' skipped' : '')
+                    state.ui.detail.textContent = completed + ' of ' + result.total + ' · ' + (result.saved + result.skipped) + ' saved'
                         + (state.failed.length ? ' · ' + state.failed.length + ' failed' : '')
                         + (state.omitted ? ' · ' + state.omitted + ' local or unavailable' : '');
                     state.ui.current.textContent = state.song ? state.song.artist : '';

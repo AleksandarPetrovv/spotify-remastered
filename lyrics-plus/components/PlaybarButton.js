@@ -95,7 +95,11 @@
 		style.id = "lp-hide-native-lyrics";
 		style.textContent = `
 			button[data-testid="lyrics-button"],
-			.main-nowPlayingBar-lyricsButton {
+			.main-nowPlayingBar-lyricsButton,
+            .custom-navlink[aria-label="Lyrics Plus"],
+            .custom-navlink[aria-label="Lyrics plus"],
+            .custom-navlink[aria-label="Lyric Plus Translate"],
+            .custom-navlink[aria-label="lyrics-plus"] {
 				display: none !important;
 			}
 		`;

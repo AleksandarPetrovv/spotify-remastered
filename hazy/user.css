@@ -1973,7 +1973,6 @@ ARTIST PAGE
 .GenericModal__overlay > div[role="dialog"],
 .main-trackCreditsModal-container,
 .main-aboutRecsModal-container,
-.main-playlistEditDetailsModal-container,
 .profile-userEditDetails-container,
 .artist-artistAbout-modal,
 .bupRDM6tHHYnfPxEfQ_h,
@@ -3254,4 +3253,14 @@ CUSTOM LYRICS STYLES
   margin-inline-start: auto;
   margin-inline-end: 0;
   flex-shrink: 0;
+}
+
+.main-playlistEditDetailsModal-container,
+[data-testid="playlist-edit-details-modal"],
+.ReactModal__Content:has([data-testid="playlist-edit-details-modal"]),
+.GenericModal__overlay > [role="dialog"]:has(.main-playlistEditDetailsModal-container),
+.GenericModal__overlay > [role="dialog"]:has([data-testid="playlist-edit-details-description-input"]) {
+  background: #202020 !important;
+  backdrop-filter: none !important;
+  opacity: 1 !important;
 }

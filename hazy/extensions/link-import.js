@@ -273,6 +273,15 @@
         const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
         overlay?.animate([{opacity:0},{opacity:1}],{duration:reduced?0:180,easing:'ease-out'});
         let closing=false;
+        let backdropPress=null;
+        function pointerdown(event) {
+            backdropPress=event.target===overlay && event.button===0
+                ? {id:event.pointerId,x:event.clientX,y:event.clientY,dragged:false} : null;
+        }
+        function pointermove(event) {
+            if(backdropPress && event.pointerId===backdropPress.id && Math.hypot(event.clientX-backdropPress.x,event.clientY-backdropPress.y)>6)backdropPress.dragged=true;
+        }
+        function resetPress(){backdropPress=null;}
         async function close(cancelImport=false) {
             if(closing || cancel.disabled)return;closing=true;closed=true;clearTimeout(timer);
             if(cancelImport)cancelled=true;
@@ -285,12 +294,25 @@
                 if(!background)Spicetify.showNotification('Import continues in the background.');
             } else if(job?.id && job.status!=='done') request('link-cancel?id='+job.id).catch(()=>{});
             window.removeEventListener('keydown',keydown,true);overlay?.removeEventListener('click',click,true);
+            overlay?.removeEventListener('pointerdown',pointerdown,true);
+            window.removeEventListener('pointermove',pointermove,true);
+            window.removeEventListener('pointercancel',resetPress,true);
+            window.removeEventListener('blur',resetPress);
             try{await overlay?.animate([{opacity:1},{opacity:0}],{duration:reduced?0:160,easing:'ease-in',fill:'forwards'}).finished;}catch{}
             if(root.isConnected)Spicetify.PopupModal.hide();open=false;
         }
-        function click(event){if(event.target===overlay || event.target.closest('.spicetify-popup-closeBtn')){event.preventDefault();event.stopImmediatePropagation();close();}}
+        function click(event){
+            const outside=event.target===overlay;
+            const dismiss=outside ? backdropPress && !backdropPress.dragged && event.button===0 : event.target.closest('.spicetify-popup-closeBtn');
+            resetPress();
+            if(outside || dismiss){event.preventDefault();event.stopImmediatePropagation();if(dismiss)close();}
+        }
         function keydown(event){if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
         overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=()=>close(importing && job?.status!=='done');input.focus();
+        overlay?.addEventListener('pointerdown',pointerdown,true);
+        window.addEventListener('pointermove',pointermove,true);
+        window.addEventListener('pointercancel',resetPress,true);
+        window.addEventListener('blur',resetPress);
     }
     const tooltipRoots = new Map();
     function attachTooltip(button, menu) {

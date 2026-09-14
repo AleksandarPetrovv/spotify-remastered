@@ -29,8 +29,15 @@ function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName
     # relative output avoids spotdl sanitizing dots in parent directory names.
     $output = '{title}.{output-ext}'
     $argsText = "download `"https://open.spotify.com/track/$trackId`" --output `"$output`" --ffmpeg `"$ffmpeg`" --format mp3 --audio youtube-music youtube --max-retries 2"
+    $runner = Join-Path $env:LOCALAPPDATA 'spotify-remastered\download-runner.py'
+    $python = Join-Path ([System.IO.Path]::GetDirectoryName($spotdl)) 'python.exe'
+    $executable = $spotdl
+    if ((Test-Path -LiteralPath $runner -PathType Leaf) -and (Test-Path -LiteralPath $python -PathType Leaf)) {
+        $executable = $python
+        $argsText = "`"$runner`" $argsText"
+    }
     # drain both streams to logs; unread redirected pipes can deadlock.
-    $proc = Start-Process -FilePath $spotdl -ArgumentList $argsText -WorkingDirectory $jobDir -PassThru -WindowStyle Hidden `
+    $proc = Start-Process -FilePath $executable -ArgumentList $argsText -WorkingDirectory $jobDir -PassThru -WindowStyle Hidden `
         -RedirectStandardOutput (Join-Path $jobDir 'stdout.log') -RedirectStandardError (Join-Path $jobDir 'stderr.log')
     $processHandle = $proc.Handle
     return @{ Process = $proc; Status = 'downloading'; Message = $null; StartedAt = [DateTime]::UtcNow;

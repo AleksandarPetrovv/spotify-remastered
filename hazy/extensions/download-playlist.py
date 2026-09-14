@@ -80,7 +80,10 @@ def worker(job):
                 work.mkdir()
                 try:
                     with (work / 'stdout.log').open('wb') as out, (work / 'stderr.log').open('wb') as err:
-                        process = subprocess.Popen([str(ROOT / 'spotdl'), 'download',
+                        runner_python = ROOT / 'downloader/bin/python'
+                        runner = ROOT / 'download-runner.py'
+                        command = [str(runner_python), str(runner)] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'spotdl')]
+                        process = subprocess.Popen(command + ['download',
                             'https://open.spotify.com/track/' + track['id'], '--output', '{title}.{output-ext}',
                             '--ffmpeg', ffmpeg, '--format', 'mp3', '--audio', 'youtube-music', 'youtube',
                             '--max-retries', '2'], cwd=work, stdout=out, stderr=err, start_new_session=True)

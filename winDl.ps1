@@ -97,6 +97,7 @@ if ($spotdlAsset) {
 }
 
 Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $customDir "download-helper.ps1") -Force
+Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "download-runner.py") -Force
 
 $dlHelperScript = Join-Path $customDir "download-helper.ps1"
 $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue

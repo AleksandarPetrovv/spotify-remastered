@@ -73,7 +73,13 @@ case "$route" in
 
         echo "downloading" > "$STATUS_FILE"
 
-        "$SPOTDL" download \
+        DOWNLOAD_COMMAND=("$SPOTDL")
+        RUNNER_PYTHON="$HOME/.local/share/spotify-remastered/downloader/bin/python"
+        RUNNER_SCRIPT="$HOME/.local/share/spotify-remastered/download-runner.py"
+        if [ -x "$RUNNER_PYTHON" ] && [ -f "$RUNNER_SCRIPT" ]; then
+            DOWNLOAD_COMMAND=("$RUNNER_PYTHON" "$RUNNER_SCRIPT")
+        fi
+        "${DOWNLOAD_COMMAND[@]}" download \
             "https://open.spotify.com/track/$trackId" \
             --output "$downloadFolder/{title}.{output-ext}" \
             --ffmpeg "$FFMPEG" \

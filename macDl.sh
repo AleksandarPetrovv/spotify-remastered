@@ -187,6 +187,7 @@ fi
 
 cp "$REPO/hazy/extensions/download-helper.sh" "$CUSTOM_DIR/download-helper.sh"
 cp "$REPO/hazy/extensions/download-playlist.py" "$CUSTOM_DIR/download-playlist.py"
+cp "$REPO/hazy/extensions/download-runner.py" "$CUSTOM_DIR/download-runner.py"
 chmod +x "$CUSTOM_DIR/download-helper.sh"
 
 DL_PLIST_NAME="com.spotify-remastered.download-helper"

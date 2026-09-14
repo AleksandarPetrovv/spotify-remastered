@@ -4,7 +4,7 @@ root="${1:-$HOME/.local/share/spotify-remastered}"
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 mkdir -p "$root/dependencies" "$root/data"
 python=""
-for candidate in "$root/dependencies/downloader/bin/python" /opt/homebrew/bin/python3 /usr/local/bin/python3 "$(command -v python3 || true)"; do
+for candidate in "$root/dependencies/downloader/bin/python" "$root/dependencies/python"/*/bin/python3 /opt/homebrew/bin/python3 /usr/local/bin/python3 "$(command -v python3 || true)"; do
     if [ -x "$candidate" ] && "$candidate" -c 'import sys,venv; sys.exit(not ((3,11) <= sys.version_info[:2] <= (3,13)))' 2>/dev/null; then python="$candidate"; break; fi
 done
 if [ -z "$python" ]; then

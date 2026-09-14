@@ -4,6 +4,9 @@ $dependencies = Join-Path $Root 'dependencies'
 New-Item -ItemType Directory -Path $dependencies -Force | Out-Null
 $python = $null
 $candidates = @((Join-Path $dependencies 'downloader\Scripts\python.exe'))
+if (Test-Path -LiteralPath (Join-Path $dependencies 'python')) {
+    $candidates += @(Get-ChildItem -LiteralPath (Join-Path $dependencies 'python') -Filter 'python.exe' -File -Recurse | Select-Object -ExpandProperty FullName)
+}
 foreach ($name in @('python3.exe','python.exe')) {
     $command = Get-Command $name -ErrorAction SilentlyContinue
     if ($command -and $command.Source -notlike '*WindowsApps*') { $candidates += $command.Source }

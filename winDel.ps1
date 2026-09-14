@@ -5,8 +5,13 @@ if (-not (Test-Path -LiteralPath $common)) {
     throw 'This installation needs the updated setup scripts before removal. No files have been deleted.'
 }
 . $common
-$spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
-$cfg = Get-RemasteredConfig $spice
+Stop-RemasteredHelpers $root
+$startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
+foreach ($file in @('Spotify Remastered Updater.vbs','Spotify Remastered Updater.lnk','Spotify Remastered Download Helper.vbs')) { Remove-ManagedPath $startup $file }
+try {
+    $spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
+    $cfg = Get-RemasteredConfig $spice
+} catch { throw 'Background helpers and startup entries were removed. Spicetify is unavailable; repair it to finish restoring Spotify. User files and recovery records were retained.' }
 $python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
 $stateTool = Join-Path $root 'scripts\install-state.py'
 if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $stateTool)) {
@@ -15,10 +20,7 @@ if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $stat
 Invoke-Checked $python $stateTool capture $root $cfg 'true'
 $state = Get-Content -LiteralPath (Join-Path $root 'data\install-state.json') -Raw | ConvertFrom-Json
 $spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
-Stop-RemasteredHelpers $root
 Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
-$startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
-foreach ($file in @('Spotify Remastered Updater.vbs','Spotify Remastered Updater.lnk','Spotify Remastered Download Helper.vbs')) { Remove-ManagedPath $startup $file }
 Invoke-Checked $spice restore
 Invoke-Checked $python $stateTool restore $root $cfg
 & (Join-Path $root 'scripts\repair-spicetify.ps1') -Restore

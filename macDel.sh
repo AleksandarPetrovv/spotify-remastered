@@ -8,15 +8,17 @@ if [ ! -x "$python" ] || [ ! -f "$state" ]; then
     echo 'The restoration tools are missing. Repair setup before uninstalling; no user files were deleted.' >&2
     exit 1
 fi
-spice=$(command -v spicetify)
-config=$("$spice" -c)
-cfg=$(dirname "$config")
-"$python" "$state" capture "$root" "$cfg" true
 for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
     if launchctl print "gui/$(id -u)/$agent" >/dev/null 2>&1; then launchctl bootout "gui/$(id -u)/$agent"; fi
     rm -f "$HOME/Library/LaunchAgents/$agent.plist"
 done
 "$python" "$state" stop "$root"
+if ! spice=$(command -v spicetify) || ! config=$("$spice" -c) || [ ! -f "$config" ]; then
+    echo 'Background helpers and login entries were removed. Spicetify is unavailable; repair it to finish restoring Spotify. User files and recovery records were retained.' >&2
+    exit 1
+fi
+cfg=$(dirname "$config")
+"$python" "$state" capture "$root" "$cfg" true
 pkill -x Spotify 2>/dev/null || true
 spotify=$("$python" - "$config" <<'PY'
 import configparser, sys

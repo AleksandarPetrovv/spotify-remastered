@@ -4,7 +4,54 @@ function Invoke-Spice {
     if ($LASTEXITCODE -ne 0) { throw "Spicetify failed with exit code $LASTEXITCODE." }
 }
 
+
+function Save-RemasteredRuntime {
+    param([string]$Root, [string]$Backup)
+    $scripts = Join-Path $Root 'scripts'
+    New-Item -ItemType Directory -Path $Backup -Force | Out-Null
+    if (Test-Path -LiteralPath $scripts -PathType Container) { Copy-Item -LiteralPath $scripts -Destination (Join-Path $Backup 'scripts') -Recurse }
+    $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
+    $names = @('Spotify Remastered Updater.vbs','Spotify Remastered Updater.lnk','Spotify Remastered Download Helper.vbs')
+    $saved = @()
+    foreach ($name in $names) {
+        $file = Join-Path $startup $name
+        if (Test-Path -LiteralPath $file -PathType Leaf) {
+            New-Item -ItemType Directory -Path (Join-Path $Backup 'startup') -Force | Out-Null
+            Copy-Item -LiteralPath $file -Destination (Join-Path (Join-Path $Backup 'startup') $name)
+            $saved += $name
+        }
+    }
+    $commands = @(Get-CimInstance Win32_Process | ForEach-Object { [string]$_.CommandLine })
+    return @{ Backup = $Backup; Startup = $startup; Names = $names; Saved = $saved;
+        HelperRunning = @($commands | Where-Object { $_.IndexOf((Join-Path $scripts 'download-helper.ps1'), [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0;
+        UpdaterRunning = @($commands | Where-Object { $_.IndexOf((Join-Path $scripts 'spotify-remastered-updater.ps1'), [StringComparison]::OrdinalIgnoreCase) -ge 0 }).Count -gt 0 }
+}
+
+function Restore-RemasteredRuntime {
+    param([string]$Root, $State)
+    Stop-RemasteredHelpers $Root
+    $scripts = Join-Path $Root 'scripts'
+    $previous = Join-Path $State.Backup 'scripts'
+    if (Test-Path -LiteralPath $previous -PathType Container) {
+        Remove-ManagedPath $Root 'scripts'
+        Copy-Item -LiteralPath $previous -Destination $scripts -Recurse
+    }
+    foreach ($name in $State.Names) {
+        if ($name -in $State.Saved) {
+            Copy-Item -LiteralPath (Join-Path (Join-Path $State.Backup 'startup') $name) -Destination (Join-Path $State.Startup $name) -Force
+        } else { Remove-ManagedPath $State.Startup $name }
+    }
+    foreach ($item in @(@{ Run = $State.HelperRunning; Name = 'download-helper.vbs' }, @{ Run = $State.UpdaterRunning; Name = 'spotify-remastered-updater.vbs' })) {
+        $launcher = Join-Path $scripts $item.Name
+        if ($item.Run -and (Test-Path -LiteralPath $launcher -PathType Leaf)) { Start-Process 'wscript.exe' -ArgumentList "`"$launcher`"" -WindowStyle Hidden }
+    }
+}
+
 $killJob = $null
+$runtimeState = $null
+$runtimeStopped = $false
+$installSucceeded = $false
+$retainRuntimeBackup = $false
 
 try {
 
@@ -25,9 +72,7 @@ foreach ($file in @('hazy\extensions\installer-common.ps1','hazy\extensions\setu
 }
 . (Join-Path $repo 'hazy\extensions\installer-common.ps1')
 $customDir = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
-Stop-RemasteredHelpers $customDir
-Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
-$killJob = Start-Job -ScriptBlock { while ($true) { Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
+$runtimeState = Save-RemasteredRuntime $customDir (Join-Path $tempExtract 'previous-runtime')
 
 if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
     Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
@@ -53,6 +98,13 @@ foreach ($file in @('setup-downloader.ps1','setup-downloader.py','downloader-req
     Copy-Item -LiteralPath (Join-Path $repo "hazy\extensions\$file") -Destination (Join-Path $customDir "scripts\$file") -Force
 }
 & (Join-Path $customDir 'scripts\setup-downloader.ps1') -Root $customDir
+. (Join-Path $repo 'hazy\extensions\download-helper.ps1') -NoListen
+Get-Downloader | Out-Null
+& (Join-Path $repo 'hazy\extensions\setup-link-tools.ps1')
+$runtimeStopped = $true
+Stop-RemasteredHelpers $customDir
+Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
+$killJob = Start-Job -ScriptBlock { while ($true) { Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
 $managedPython = Join-Path $customDir 'dependencies\downloader\Scripts\python.exe'
 Invoke-Checked $managedPython (Join-Path $customDir 'scripts\install-state.py') capture $customDir $cfg ([string]$spicetifyExistedBefore)
 $themesDir = Join-Path $cfg "Themes"
@@ -96,10 +148,7 @@ Copy-Item -LiteralPath (Join-Path $repo 'hazy\extensions\about-this-folder.txt')
 
 Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $customDir "scripts\download-helper.ps1") -Force
 Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "scripts\download-runner.py") -Force
-. (Join-Path $customDir 'scripts\download-helper.ps1') -NoListen
-Get-Downloader | Out-Null
 foreach ($file in @('link-helper.ps1','setup-link-tools.ps1','local-catalogue.ps1','repair-spicetify.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
-& (Join-Path $customDir 'scripts\setup-link-tools.ps1')
 
 $dlHelperScript = Join-Path $customDir "scripts\download-helper.ps1"
 $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
@@ -249,16 +298,13 @@ $vbsLine | Set-Content $vbsLauncher -Encoding Unicode
 
 Copy-Item $vbsLauncher $startupVbs -Force
 
-Remove-Item $tempZip -Force -ErrorAction SilentlyContinue
-Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue
 
 Invoke-Spice apply
 
-} finally {
-    if ($killJob) {
-        Stop-Job $killJob -ErrorAction SilentlyContinue
-        Remove-Job $killJob -Force -ErrorAction SilentlyContinue
-    }
+if ($killJob) {
+    Stop-Job $killJob -ErrorAction SilentlyContinue
+    Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+    $killJob = $null
 }
 
 Start-Process 'wscript.exe' -ArgumentList "`"$dlVbs`"" -WindowStyle Hidden
@@ -273,5 +319,25 @@ try { Start-Process "spotify" } catch {
     try { Start-Process "$env:APPDATA\Spotify\Spotify.exe" } catch { }
 }
 
+$installSucceeded = $true
+} finally {
+    if ($killJob) {
+        Stop-Job $killJob -ErrorAction SilentlyContinue
+        Remove-Job $killJob -Force -ErrorAction SilentlyContinue
+    }
+    if (-not $installSucceeded -and $runtimeState) {
+        try {
+            if ($runtimeStopped) { Restore-RemasteredRuntime $customDir $runtimeState }
+            else {
+                $previousScripts = Join-Path $runtimeState.Backup 'scripts'
+                if (Test-Path -LiteralPath $previousScripts) { Get-ChildItem -LiteralPath $previousScripts -Force | Copy-Item -Destination (Join-Path $customDir 'scripts') -Recurse -Force }
+            }
+        } catch { Write-Warning "Could not restore the previous helper runtime: $_. Runtime backup retained at $($runtimeState.Backup)."; $retainRuntimeBackup = $true }
+    }
+    if (Get-Command Remove-ManagedPath -ErrorAction SilentlyContinue) {
+        if (-not $retainRuntimeBackup -and $tempExtract -and (Test-Path -LiteralPath $tempExtract)) { Remove-ManagedPath $env:TEMP ([IO.Path]::GetFileName($tempExtract)) }
+        if ($tempZip -and (Test-Path -LiteralPath $tempZip)) { Remove-ManagedPath $env:TEMP ([IO.Path]::GetFileName($tempZip)) }
+    }
+}
 Start-Sleep -Seconds 3
 exit

@@ -2,7 +2,44 @@
 set -euo pipefail
 
 temporary=$(mktemp -d "${TMPDIR:-/tmp}/spotify-remastered.XXXXXX")
-trap 'rm -rf "$temporary"' EXIT
+runtime_stopped=false
+install_succeeded=false
+loaded_agents=""
+agents_dir="$HOME/Library/LaunchAgents"
+rollback() {
+    result=$?
+    rollback_failed=false
+    trap - EXIT
+    if [ "$install_succeeded" != true ] && [ -n "${root:-}" ]; then
+        if [ "$runtime_stopped" = true ]; then
+            for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
+                launchctl bootout "gui/$(id -u)/$agent" >/dev/null 2>&1 || true
+            done
+            "$python" "$root/scripts/install-state.py" stop "$root" || true
+        fi
+        if [ -d "$temporary/previous-scripts" ]; then
+            if [ "$runtime_stopped" = true ]; then rm -rf "$root/scripts"; fi
+            mkdir -p "$root/scripts"
+            cp -R "$temporary/previous-scripts/." "$root/scripts/" || { echo 'Could not restore previous helper scripts.' >&2; rollback_failed=true; }
+        fi
+        if [ "$runtime_stopped" = true ]; then
+            for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
+                plist="$agents_dir/$agent.plist"
+                if [ -f "$temporary/$agent.plist" ]; then
+                    cp "$temporary/$agent.plist" "$plist" || rollback_failed=true
+                else
+                    rm -f "$plist"
+                fi
+            done
+            for agent in $loaded_agents; do
+                launchctl bootstrap "gui/$(id -u)" "$agents_dir/$agent.plist" || { echo "Could not restore $agent; recovery records were retained." >&2; rollback_failed=true; }
+            done
+        fi
+    fi
+    if [ "$rollback_failed" = true ]; then echo "Previous runtime backup retained at $temporary." >&2; else rm -rf "$temporary"; fi
+    exit "$result"
+}
+trap rollback EXIT
 curl -fL --retry 2 -o "$temporary/source.zip" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.8.zip"
 unzip -q "$temporary/source.zip" -d "$temporary/source"
 sources=("$temporary/source"/*)
@@ -12,19 +49,18 @@ for file in setup-downloader.sh setup-downloader.py downloader-requirements.txt 
     if [ ! -f "$repo/hazy/extensions/$file" ]; then echo "Missing installation file: $file" >&2; exit 1; fi
 done
 root="$HOME/.local/share/spotify-remastered"
+if [ -L "$root" ] || [ -L "$root/scripts" ]; then echo 'Linked support directories are not supported.' >&2; exit 1; fi
 mkdir -p "$root/dependencies" "$root/data" "$root/cache" "$root/scripts"
 export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.spicetify:$PATH"
+if [ -d "$root/scripts" ]; then cp -R "$root/scripts" "$temporary/previous-scripts"; fi
 for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
-    if launchctl print "gui/$(id -u)/$agent" >/dev/null 2>&1; then launchctl bootout "gui/$(id -u)/$agent"; fi
+    plist="$agents_dir/$agent.plist"
+    if [ -f "$plist" ]; then cp "$plist" "$temporary/$agent.plist"; fi
+    if launchctl print "gui/$(id -u)/$agent" >/dev/null 2>&1; then loaded_agents="$loaded_agents $agent"; fi
 done
-if [ -x "$root/dependencies/downloader/bin/python" ] && [ -f "$root/scripts/install-state.py" ]; then
-    "$root/dependencies/downloader/bin/python" "$root/scripts/install-state.py" stop "$root"
-fi
 for file in setup-downloader.sh setup-downloader.py downloader-requirements.txt install-state.py; do cp "$repo/hazy/extensions/$file" "$root/scripts/$file"; done
 bash "$root/scripts/setup-downloader.sh" "$root"
 python="$root/dependencies/downloader/bin/python"
-"$python" "$root/scripts/install-state.py" stop "$root"
-pkill -x Spotify 2>/dev/null || true
 existed=true
 if ! command -v spicetify >/dev/null 2>&1; then
     curl -fL --retry 2 https://raw.githubusercontent.com/spicetify/cli/main/install.sh -o "$temporary/spicetify-install.sh"
@@ -36,6 +72,12 @@ spice=$(command -v spicetify)
 "$spice" >/dev/null
 config=$("$spice" -c)
 cfg=$(dirname "$config")
+"$python" -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$repo/hazy/extensions/download-playlist.py"
+"$python" "$repo/hazy/extensions/setup-link-tools.py"
+runtime_stopped=true
+for agent in $loaded_agents; do launchctl bootout "gui/$(id -u)/$agent"; done
+"$python" "$root/scripts/install-state.py" stop "$root"
+pkill -x Spotify 2>/dev/null || true
 "$python" "$root/scripts/install-state.py" capture "$root" "$cfg" "$existed"
 if [ ! -f "$root/data/spicetify-status.txt" ]; then printf 'spicetify-existed-before=%s\n' "$existed" > "$root/data/spicetify-status.txt"; fi
 "$python" - "$cfg" "$repo" <<'PY'
@@ -130,8 +172,6 @@ except Exception:
     logger.exception('startup failed')
     sys.exit(1)
 REMASTERED_UPDATER
-"$python" -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$root/scripts/download-playlist.py"
-"$python" "$root/scripts/setup-link-tools.py"
 spotify=$("$python" - "$config" <<'PY'
 import configparser, sys
 c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','spotify_path'))
@@ -167,11 +207,11 @@ for item in items:
     with (agents/(item['Label']+'.plist')).open('wb') as output: plistlib.dump(item,output)
 PY
 for agent in com.spotify-remastered.download-helper com.spotify-remastered.updater; do
-    plist="$HOME/Library/LaunchAgents/$agent.plist"
+    plist="$agents_dir/$agent.plist"
     plutil -lint "$plist" >/dev/null
     launchctl bootstrap "gui/$(id -u)" "$plist"
 done
-"$python" - "$HOME/Library/LaunchAgents/com.spotify-remastered.updater.plist" <<'PY'
+"$python" - "$agents_dir/com.spotify-remastered.updater.plist" <<'PY'
 import plistlib,sys
 # the loaded job stays idle during setup; the next login loads runatload.
 path=sys.argv[1]
@@ -193,4 +233,5 @@ else: raise RuntimeError('The download listener did not start; installation reco
 PY
 cp "$repo/hazy/extensions/about-this-folder.txt" "$root/about-this-folder.txt"
 open -a Spotify
+install_succeeded=true
 echo 'Spotify Remastered installed successfully.'

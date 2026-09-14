@@ -158,7 +158,7 @@
         }
         another.onclick=()=>{resetSearch();input.value='';input.focus();};
         input.addEventListener('input',resetSearch);
-        for (const platform of ['YouTube']) {
+        for (const platform of ['YouTube','SoundCloud']) {
             const tab=element('button',platform);tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(platform===source));tabs.append(tab);
             tab.onclick=()=>{if(busy)return;source=platform;resetSearch();input.placeholder='Paste a '+platform+' song link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));input.focus();};
         }

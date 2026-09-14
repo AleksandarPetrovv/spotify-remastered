@@ -86,6 +86,8 @@ function Get-LinkUrl($value) {
         return "https://www.youtube.com/watch?v=$id"
     }
     if ($hostName -eq 'youtu.be' -and $url.AbsolutePath -match '^/([A-Za-z0-9_-]{11})/?$') { return "https://www.youtube.com/watch?v=$($Matches[1])" }
+    if ($hostName -in @('soundcloud.com', 'www.soundcloud.com') -and $url.AbsolutePath -match '^/[^/]+/[^/]+/?$' -and $url.AbsolutePath -notmatch '/(sets|likes|tracks|albums|popular-tracks)/?$') { return $url.AbsoluteUri }
+    if ($hostName -in @('on.soundcloud.com', 'snd.sc') -and $url.AbsolutePath -match '^/[A-Za-z0-9]+/?$') { return $url.AbsoluteUri }
     throw 'Use a single YouTube or SoundCloud song link, rather than a playlist or profile.'
 }
 

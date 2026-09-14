@@ -66,6 +66,10 @@ def validate(value):
             video = match[2]
         if re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
             return 'https://www.youtube.com/watch?v=' + video
+    if url.hostname in ('soundcloud.com', 'www.soundcloud.com') and re.fullmatch(r'/[^/]+/[^/]+/?', url.path) and not re.search(r'/(sets|likes|tracks|albums|popular-tracks)/?$', url.path):
+        return value
+    if url.hostname in ('on.soundcloud.com', 'snd.sc') and re.fullmatch(r'/[A-Za-z0-9]+/?', url.path):
+        return value
     raise ValueError('Use a single YouTube or SoundCloud song link.')
 
 

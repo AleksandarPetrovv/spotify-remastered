@@ -550,239 +550,187 @@
 
   // Create edit home topbar button
   const homeEdit = new Spicetify.Topbar.Button("Hazy Settings", "edit", () => {
+    if (document.getElementById("hazy-settings")) return;
     const content = document.createElement("div");
-    content.innerHTML = `
-    <div class="main-playlistEditDetailsModal-albumCover" id="home-select">
-      <div class="main-entityHeader-image" draggable="false">
-        <img aria-hidden="false" draggable="false" loading="eager" class="main-image-image main-entityHeader-image main-entityHeader-shadow">
-      </div>
-      <div class="main-playlistEditDetailsModal-imageChangeButton">
-        <div class="main-editImage-buttonContainer"></div>
-      </div>
-    </div>`;
-
-    function createToggle(opt) {
-      let { id, name, defVal } = opt;
-      const toggleRow = document.createElement("div");
-      toggleRow.classList.add("hazyOptionRow");
-      toggleRow.innerHTML = `
-      <span class="hazyOptionDesc">${name}:</span>
-      <button class="hazyOptionToggle">
-        <span class="toggleWrapper">
-          <span class="toggle"></span>
-        </span>
-      </button>`;
-      toggleRow.setAttribute("name", id);
-      toggleRow
-        .querySelector("button")
-        .addEventListener("click", () =>
-          toggleRow.querySelector(".toggle").classList.toggle("enabled")
-        );
-      const isEnabled = JSON.parse(localStorage.getItem(id)) ?? defVal;
-      toggleRow.querySelector(".toggle").classList.toggle("enabled", isEnabled);
-      content.append(toggleRow);
-    }
-
-    function createSlider(opt) {
-      let { id, name, min, max, step, defVal, end } = opt;
-      const val = localStorage.getItem(`${id}Amount`) || defVal;
-      const slider = document.createElement("div");
-      slider.classList.add("hazyOptionRow");
-      slider.innerHTML = `
-      <div class="slider-container">
-        <label for="${id}-input">${name}:</label>
-        <input class="slider" id="${id}-input" type="range" min="${min}" max="${max}" step="${step}" value="${val}">
-        <div class="slider-value">
-          <p id="${id}-value" contenteditable="true" >${val}${end || "%"}</p>
-        </div>
-      </div>`;
-      slider.querySelector(`#${id}-value`).addEventListener("input", () => {
-        let content = slider.querySelector(`#${id}-value`).textContent.trim();
-        const number = Number.parseInt(content);
-        if (content.length > 3) {
-          // Truncate the content to 3 characters
-          content = slider.querySelector(`#${id}-value`).textContent =
-            content.slice(0, 3);
-        }
-        slider.querySelector(`#${id}-input`).value = number;
-      });
-      slider.querySelector(`#${id}-input`).addEventListener("input", () => {
-        slider.querySelector(`#${id}-value`).textContent = `${
-          slider.querySelector(`#${id}-input`).value
-        }${opt.end || "%"}`;
-      });
-      content.append(slider);
-    }
-
-    const srcInput = document.createElement("input");
-    srcInput.type = "text";
-    srcInput.classList.add(
-      "main-playlistEditDetailsModal-textElement",
-      "main-playlistEditDetailsModal-titleInput"
-    );
-    srcInput.id = "src-input";
-    srcInput.placeholder =
-      "Background image URL";
-    if (!startImage.startsWith("data:image")) {
-      srcInput.value = startImage;
-    }
-    content.append(srcInput);
-
-    toggleInfo.forEach(createToggle);
-
-    // Additional settings (added by lily)
-    const colorRow = document.createElement("div");
-    colorRow.classList.add("hazyOptionRow");
-
-    // Color label
-    const colorLabel = document.createElement("label");
-    colorLabel.id = "color-label";
-    colorLabel.htmlFor = "color";
-    colorLabel.textContent = "Color:";
-    colorLabel.style.textAlign = "right";
-    colorLabel.style.marginRight = "10px";
-    colorLabel.style.fontSize = "0.875rem";
-    colorRow.append(colorLabel);
-
-    // Color picker
-    const colorInput = document.createElement("input");
-    colorInput.type = "color";
-    colorInput.id = "color-input";
-    colorInput.value = localStorage.getItem("CustomColor") || "#30bf63";
-    colorInput.style.border = "none";
-    colorRow.append(colorInput);
-    content.append(colorRow);
-
-    sliders.forEach(createSlider);
-    loadSliders();
-
-    img = content.querySelector("img");
-    img.src = localStorage.getItem("hazy:startupBg") || defImage;
-
-    srcInput.addEventListener("input", () => {
-      img.src = srcInput.value
-    })
-
-    /* const editButton = content.querySelector(
-      ".main-editImageButton-image.main-editImageButton-overlay"
-    );
-    editButton.onclick = () => {
-      bannerInput.click();
+    content.id = "hazy-settings";
+    const body = document.createElement("div");
+    body.className = "hz-settings-body";
+    content.append(body);
+    const make = (tag, text, className) => {
+      const node = document.createElement(tag);
+      if (text) node.textContent = text;
+      if (className) node.className = className;
+      return node;
     };
-    const removeButton = content.querySelector(
-      ".main-playlistEditDetailsModal-imageDropDownButton"
-    );
-    removeButton.onclick = () => {
-      content.querySelector("img").src = defImage;
-    }; */
-
-    const buttonsRow = document.createElement("div");
-    buttonsRow.style.display = "flex";
-    buttonsRow.style.paddingTop = "15px";
-    buttonsRow.style.alignItems = "flex-end";
-
-    const resetButton = document.createElement("button");
-    resetButton.id = "value-reset";
-    resetButton.innerHTML = "Reset";
-
-    const saveButton = document.createElement("button");
-    saveButton.id = "home-save";
-    saveButton.innerHTML = "Apply";
-
-    saveButton.onclick = async () => {
-      // Check if image background is valid
-      let invalidImage = false;
+    function section(title, description) {
+      const node = make("section", null, "hz-section");
+      node.append(make("h3", title), make("p", description, "hz-description"));
+      body.append(node);
+      return node;
+    }
+    const toggleInputs = new Map();
+    function toggle(parent, opt) {
+      const row = make("div", null, "hz-row");
+      row.append(make("span", opt.name));
+      const button = make("button", null, "hz-switch");
+      button.type = "button";
+      button.setAttribute("role", "switch");
+      button.setAttribute("aria-label", opt.name);
+      button.setAttribute("aria-checked", String(JSON.parse(localStorage.getItem(opt.id)) ?? opt.defVal));
+      button.append(make("span"));
+      button.onclick = () => button.setAttribute("aria-checked", String(button.getAttribute("aria-checked") !== "true"));
+      toggleInputs.set(opt.id, button);
+      row.append(button);
+      parent.append(row);
+    }
+    const background = section("Background", "Choose an image or keep the current song’s artwork.");
+    const preview = make("div", null, "hz-background-preview");
+    const image = make("img");
+    image.alt = "Background preview";
+    image.src = startImage;
+    const imageField = make("label", "Background image URL", "hz-image-field");
+    const srcInput = make("input");
+    srcInput.type = "url";
+    srcInput.placeholder = "https://…";
+    srcInput.value = startImage.startsWith("data:image") ? "" : startImage;
+    imageField.append(srcInput);
+    preview.append(image, imageField);
+    background.append(preview);
+    srcInput.onchange = () => { image.src = srcInput.value.trim() || startImage; };
+    image.onerror = () => { image.removeAttribute("src"); };
+    toggle(background, toggleInfo[0]);
+    const sliderInputs = new Map();
+    for (const opt of sliders) {
+      const row = make("label", null, "hz-row");
+      row.append(make("span", opt.name));
+      const controls = make("span", null, "hz-slider-controls");
+      const range = make("input");
+      range.type = "range";
+      const number = make("input");
+      number.type = "number";
+      for (const input of [range, number]) {
+        input.min = opt.min; input.max = opt.max; input.step = opt.step;
+        input.value = localStorage.getItem(opt.id + "Amount") ?? opt.defVal;
+        input.setAttribute("aria-label", opt.name);
+      }
+      const paint = () => range.style.setProperty("--hz-range-progress", `${(Number(range.value) - opt.min) / (opt.max - opt.min) * 100}%`);
+      paint();
+      const clamp = () => {
+        const value = Number.isFinite(number.valueAsNumber) ? number.valueAsNumber : opt.defVal;
+        range.value = Math.max(opt.min, Math.min(opt.max, Math.round((value - opt.min) / opt.step) * opt.step + opt.min));
+        number.value = range.value;
+        paint();
+      };
+      range.oninput = () => { number.value = range.value; paint(); };
+      number.onchange = clamp;
+      controls.append(range, number, make("span", opt.end || "%", "hz-unit"));
+      row.append(controls);
+      background.append(row);
+      sliderInputs.set(opt.id, { range, number, clamp, paint });
+    }
+    const accent = section("Accent", "Use album colours or choose a fixed accent.");
+    toggle(accent, toggleInfo[1]);
+    const colorRow = make("label", null, "hz-row");
+    colorRow.append(make("span", "Accent colour"));
+    const color = make("input");
+    color.type = "color";
+    color.value = localStorage.getItem("CustomColor") || "#30bf63";
+    color.setAttribute("aria-label", "Accent colour");
+    colorRow.append(color);
+    accent.append(colorRow);
+    const layout = section("Layout", "Adjust the playback sidebar.");
+    toggle(layout, toggleInfo[2]);
+    const footer = make("div", null, "hz-footer");
+    const status = make("p", "Choose Apply to save your changes.");
+    status.setAttribute("role", "status");
+    const actions = make("div", null, "hz-actions");
+    const reset = make("button", "Reset defaults");
+    const save = make("button", "Apply", "hz-primary");
+    actions.append(reset, save);
+    footer.append(status, actions);
+    content.append(footer);
+    reset.onclick = () => {
+      for (const opt of toggleInfo) toggleInputs.get(opt.id).setAttribute("aria-checked", String(opt.defVal));
+      for (const opt of sliders) { const inputs = sliderInputs.get(opt.id); inputs.range.value = inputs.number.value = opt.defVal; inputs.paint(); }
+      srcInput.value = defImage; image.src = defImage; color.value = "#30bf63";
+      status.textContent = "Defaults restored. Choose Apply to save.";
+    };
+    save.onclick = async () => {
+      save.disabled = true; reset.disabled = true;
       try {
-        await fetch(srcInput.value, {
-          "mode": "no-cors"
-        });
-      }
-      catch (error) {
-        invalidImage = true;
-      }
-
-      if (!srcInput.value || !URL.canParse(srcInput.value) || invalidImage) {
-        saveButton.innerHTML = "Invalid image";
-        saveButton.classList.add("applyfailed");
-        saveButton.disabled = true;
-
-        setTimeout(() => {
-          saveButton.innerHTML = "Apply";
-          saveButton.classList.remove("applyfailed");
-          saveButton.disabled = false;
-        }, 3000);
-
-        return;
-      }
-
-      // Change the button text to "Applied!", add "applied" class, and disable the button
-      saveButton.innerHTML = "Applied!";
-      saveButton.classList.add("applied");
-      saveButton.disabled = true;
-
-      // Revert back to "Apply", remove "applied" class, and enable the button after a second
-      setTimeout(() => {
-        saveButton.innerHTML = "Apply";
-        saveButton.classList.remove("applied");
-        saveButton.disabled = false;
-      }, 1000);
-
-      // Update changed bg image
-      startImage = srcInput.value || content.querySelector("img").src;
-      localStorage.setItem("hazy:startupBg", startImage);
-
-      // Save the selected custom color (added by lily)
-      localStorage.setItem(
-        "CustomColor",
-        document.getElementById("color-input").value
-      );
-
-      toggleInfo.forEach((opt) =>
-        localStorage.setItem(
-          opt.id,
-          document
-            .querySelector(`.hazyOptionRow[name=${opt.id}] .toggle`)
-            .classList.contains("enabled")
-        )
-      );
-      sliders.forEach((opt) =>
-        localStorage.setItem(
-          opt.id + "Amount",
-          document.querySelector(`.hazyOptionRow #${opt.id}-input`).value
-        )
-      );
-
-      loadSliders();
-      loadToggles();
+        const url = srcInput.value.trim() || startImage;
+        if (url !== startImage) {
+          const parsed = new URL(url);
+          if (!["https:", "http:", "data:"].includes(parsed.protocol)) throw new Error("Enter a valid image URL.");
+          await new Promise((resolve, reject) => {
+            const check = new Image();
+            const timer = setTimeout(() => reject(new Error("Could not load the image. Check its URL.")), 7000);
+            check.onload = () => { clearTimeout(timer); resolve(); };
+            check.onerror = () => { clearTimeout(timer); reject(new Error("Could not load the image. Check its URL.")); };
+            check.src = url;
+          });
+        }
+        localStorage.setItem("hazy:startupBg", url); startImage = url; image.src = url;
+        localStorage.setItem("CustomColor", color.value);
+        for (const opt of toggleInfo) localStorage.setItem(opt.id, toggleInputs.get(opt.id).getAttribute("aria-checked"));
+        for (const opt of sliders) { const inputs = sliderInputs.get(opt.id); inputs.clamp(); localStorage.setItem(opt.id + "Amount", inputs.range.value); }
+        loadSliders(); loadToggles();
+        status.textContent = "Changes applied.";
+      } catch (error) { status.textContent = error instanceof TypeError ? "Enter a valid image URL." : error.message; }
+      finally { save.disabled = false; reset.disabled = false; }
     };
-
-    resetButton.onclick = () => {
-      sliders.forEach((opt) => {
-        document.querySelector(`.hazyOptionRow #${opt.id}-input`).value =
-          opt.defVal;
-        document.querySelector(
-          `.hazyOptionRow #${opt.id}-value`
-        ).textContent = `${opt.defVal}${opt.end || "%"}`;
-      });
-      toggleInfo.forEach((opt) => {
-        document
-          .querySelector(`.hazyOptionRow[name=${opt.id}] .toggle`)
-          .classList.toggle("enabled", opt.defVal);
-      });
-      document.getElementById("src-input").value = defImage;
-      img.src = defImage;
-      document.getElementById("color-input").value = "#30bf63";
-    };
-
-    const issueButton = document.createElement("a");
-    issueButton.classList.add("issue-button");
-    issueButton.innerHTML = "Report Issue";
-    issueButton.href = "https://github.com/Astromations/Hazy/issues";
-
-    buttonsRow.append(issueButton, resetButton, saveButton);
-    content.append(buttonsRow);
-
-    Spicetify.PopupModal.display({ title: "Hazy Settings", content });
+    Spicetify.PopupModal.display({ title: "Hazy settings", content });
+    const overlay = content.closest(".GenericModal__overlay");
+    const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 160;
+    overlay?.animate([{ opacity: 0 }, { opacity: 1 }], { duration, easing: "ease-out" });
+    let closing = false;
+    async function close() {
+      if (closing) return;
+      closing = true;
+      overlay?.removeEventListener("click", click, true);
+      window.removeEventListener("keydown", keydown, true);
+      try { await overlay?.animate([{ opacity: 1 }, { opacity: 0 }], { duration, easing: "ease-in", fill: "forwards" }).finished; } catch {}
+      if (content.isConnected) Spicetify.PopupModal.hide();
+    }
+    function click(event) {
+      if (event.target === overlay || event.target.closest(".spicetify-popup-closeBtn")) { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+    }
+    function keydown(event) {
+      if (!content.isConnected) { window.removeEventListener("keydown", keydown, true); return; }
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); close(); }
+    }
+    overlay?.addEventListener("click", click, true);
+    window.addEventListener("keydown", keydown, true);
   });
   homeEdit.element.classList.toggle("hidden", false);
+  function matchSettingsControl(attempt = 0) {
+    const native = document.querySelector('button[aria-label="Home"]');
+    const TooltipWrapper = Spicetify.ReactComponent?.TooltipWrapper;
+    if (!native || !TooltipWrapper || !Spicetify.ReactDOM?.createRoot) {
+      if (attempt < 100) setTimeout(() => matchSettingsControl(attempt + 1), 100);
+      return;
+    }
+    const button = homeEdit.button || homeEdit.element.querySelector("button");
+    if (!button) return;
+    homeEdit.tippy?.destroy();
+    button.removeAttribute("title");
+    button.className = [...native.classList].filter(name => name !== "main-globalNav-navLinkActive").join(" ");
+    button.setAttribute("data-hazy-settings", "true");
+    button.style.transition = getComputedStyle(native).transition;
+    button.setAttribute("data-encore-id", "buttonTertiary");
+    homeEdit.element.style.display = "inline-flex";
+    function SettingsTooltip() {
+      const [visible, setVisible] = Spicetify.React.useState(false);
+      Spicetify.React.useLayoutEffect(() => { homeEdit.element.firstElementChild?.appendChild(button); }, []);
+      return Spicetify.React.createElement(TooltipWrapper,
+        { label: "Hazy Settings", placement: "bottom", showDelay: 200, isOpen: visible },
+        Spicetify.React.createElement("span", {
+          style: { display: "inline-flex" },
+          onMouseEnter: () => setVisible(true), onMouseLeave: () => setVisible(false),
+          onFocus: () => setVisible(true), onBlur: () => setVisible(false), onClick: () => setVisible(false)
+        }));
+    }
+    Spicetify.ReactDOM.createRoot(homeEdit.element).render(Spicetify.React.createElement(SettingsTooltip));
+  }
+  matchSettingsControl();
 })();

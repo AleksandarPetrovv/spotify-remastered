@@ -35,5 +35,7 @@ here is what each file and folder does (optional items may not be present):
 - cache/spotify-worker: queued jobs for the shared spotify downloader; the worker exits after two idle minutes.
 - cache/download-logs and cache/playlist-jobs: download progress/logs and indexes of completed files.
 - cache/import-logs: temporary import jobs, limited by the helper's retention policy.
+- cache/startup.log and startup.log.1: bounded login upgrade/apply diagnostics, with one previous log retained.
+- cache/startup.lock: mac updater lock; prevents overlapping login repair runs.
 - cache/local-catalogue.json: reusable metadata for unchanged songs.
 - about-this-folder.txt: this explanation.

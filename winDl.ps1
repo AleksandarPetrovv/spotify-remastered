@@ -153,26 +153,84 @@ Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue
 $popupResponse = $wshell.Popup("Do you want Spotify to open every time you turn on your PC?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
 
 $helperScriptContent = @'
+param([string]$SpicetifyPath, [switch]$KeepClosed)
 $ErrorActionPreference = 'Stop'
-function Invoke-Spice { & $script:spiceExe @args; if ($LASTEXITCODE -ne 0) { throw 'Spicetify update failed.' } }
-$script:spiceExe = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
-Start-Sleep -Seconds 10
-$spice = (Get-Command spicetify -ErrorAction SilentlyContinue).Source
-if ($spice) {
-    $job = Start-Job -ScriptBlock { & $using:spice upgrade }
-    Wait-Job $job -Timeout 60 | Out-Null
-    Stop-Job $job -ErrorAction SilentlyContinue
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
+$root = Split-Path $PSScriptRoot
+$cache = Join-Path $root 'cache'
+New-Item -ItemType Directory -Path $cache -Force | Out-Null
+$mutex = New-Object Threading.Mutex($false, 'Local\SpotifyRemasteredUpdater')
+$locked = $false
+try {
+    try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
+    if (-not $locked) { return }
+    $script:log = Join-Path $cache 'startup.log'
+    if ((Test-Path $script:log) -and (Get-Item $script:log).Length -gt 262144) {
+        Move-Item -LiteralPath $script:log -Destination "$script:log.1" -Force
+    }
+    function Write-StartupLog([string]$Message) {
+        Add-Content -LiteralPath $script:log -Value "$(Get-Date -Format o) $Message" -Encoding UTF8
+    }
+    if (-not $SpicetifyPath -or -not (Test-Path -LiteralPath $SpicetifyPath)) {
+        $SpicetifyPath = (Get-Command spicetify -CommandType Application -ErrorAction SilentlyContinue).Source
+        if (-not $SpicetifyPath) { $SpicetifyPath = Join-Path $env:LOCALAPPDATA 'spicetify\spicetify.exe' }
+    }
+    function Invoke-StartupSpice([string]$Arguments) {
+        $info = New-Object Diagnostics.ProcessStartInfo
+        $info.FileName = $SpicetifyPath
+        $info.Arguments = $Arguments
+        $info.UseShellExecute = $false
+        $info.CreateNoWindow = $true
+        $info.RedirectStandardOutput = $true
+        $info.RedirectStandardError = $true
+        $process = New-Object Diagnostics.Process
+        $process.StartInfo = $info
+        try {
+            $null = $process.Start()
+            $stdout = $process.StandardOutput.ReadToEndAsync()
+            $stderr = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(180000)) {
+                $stop = New-Object Diagnostics.ProcessStartInfo
+                $stop.FileName = Join-Path $env:SystemRoot 'System32\taskkill.exe'
+                $stop.Arguments = "/PID $($process.Id) /T /F"
+                $stop.UseShellExecute = $false
+                $stop.CreateNoWindow = $true
+                $killer = [Diagnostics.Process]::Start($stop)
+                try { $killer.WaitForExit() } finally { $killer.Dispose() }
+                throw "$Arguments timed out"
+            }
+            Write-StartupLog "$Arguments`: $($stdout.GetAwaiter().GetResult()) $($stderr.GetAwaiter().GetResult())"
+            if ($process.ExitCode -ne 0) { throw "$Arguments exited with code $($process.ExitCode)" }
+        } finally { $process.Dispose() }
+    }
+    $upgraded = $false
+    $applied = $false
+    for ($attempt = 1; $attempt -le 3; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Seconds (15 * ($attempt - 1)) }
+        if (-not $upgraded) {
+            try { Invoke-StartupSpice 'upgrade'; $upgraded = $true }
+            catch { Write-StartupLog "upgrade attempt $attempt failed: $_" }
+        }
+        if (-not $applied -or $upgraded) {
+            try {
+                Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+                & (Join-Path $PSScriptRoot 'repair-spicetify.ps1') -SpicetifyPath $SpicetifyPath
+                Invoke-StartupSpice 'backup apply -n'
+                $applied = $true
+            } catch { $applied = $false; Write-StartupLog "apply attempt $attempt failed: $_" }
+        }
+        if ($upgraded -and $applied) { break }
+    }
+    if (-not $applied) { throw 'customization could not be applied after three attempts' }
+    if (-not $KeepClosed) { Invoke-StartupSpice 'restart' }
+    Write-StartupLog "startup finished; upgrade successful: $upgraded; customization applied: $applied"
+} catch {
+    if ($script:log) { Write-StartupLog "startup failed: $_" }
+    exit 1
+} finally {
+    if ($locked) { $mutex.ReleaseMutex() }
+    $mutex.Dispose()
 }
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-& (Join-Path $env:LOCALAPPDATA 'spotify-remastered\scripts\repair-spicetify.ps1')
-Invoke-Spice backup apply
-Start-Sleep -Seconds 5
 '@
-
-if ($popupResponse -ne 6) {
-    $helperScriptContent += "`r`nGet-Process | Where-Object {`$_.ProcessName -like '*spotify*'} | Stop-Process -Force -ErrorAction SilentlyContinue"
-}
 
 $helperScriptContent | Set-Content $helperScript -Encoding UTF8
 
@@ -184,7 +242,9 @@ else {
 }
 
 $q = '""'
-$vbsLine = 'CreateObject("WScript.Shell").Run "' + $q + $pwshPath + $q + ' -ExecutionPolicy Bypass -File ' + $q + $helperScript + $q + '", 0, False'
+$updaterArgs = ' -SpicetifyPath ' + $q + $script:spiceExe + $q
+if ($popupResponse -ne 6) { $updaterArgs += ' -KeepClosed' }
+$vbsLine = 'CreateObject("WScript.Shell").Run "' + $q + $pwshPath + $q + ' -NoProfile -ExecutionPolicy Bypass -File ' + $q + $helperScript + $q + $updaterArgs + '", 0, False'
 $vbsLine | Set-Content $vbsLauncher -Encoding Unicode
 
 Copy-Item $vbsLauncher $startupVbs -Force

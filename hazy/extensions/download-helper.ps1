@@ -276,6 +276,7 @@ try { while ($listener.IsListening) {
         Clear-DownloadLogs
         if (Get-Command Clear-LinkJobs -ErrorAction SilentlyContinue) { Clear-LinkJobs }
     }
+    if (Get-Command Update-LocalCatalogue -ErrorAction SilentlyContinue) { Update-LocalCatalogue }
     $ctx = $listener.EndGetContext($pending)
     $pending.AsyncWaitHandle.Close()
     foreach ($id in @($script:downloads.Keys)) {
@@ -408,5 +409,10 @@ try { while ($listener.IsListening) {
 } } finally {
     foreach ($dl in @($script:downloads.Values)) { Stop-Download $dl }
     foreach ($batch in @($script:playlists.Values)) { Stop-Playlist $batch }
+    if ($script:localCatalogueJob) {
+        try { if (-not $script:localCatalogueJob.Process.HasExited) { $script:localCatalogueJob.Process.Kill() } } catch {}
+        foreach ($client in $script:localCatalogueJob.Clients) { try { $client.Response.Close() } catch {} }
+        $script:localCatalogueJob.Process.Dispose()
+    }
     $listener.Close()
 }

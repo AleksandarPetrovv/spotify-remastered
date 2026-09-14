@@ -95,6 +95,8 @@ here is what each file and folder does (optional items may not be present):
 - scripts/download-helper.ps1: background download listener on port 27382; handles songs, playlists and albums, progress, cancellation and destination folders.
 - scripts/download-helper.vbs: launches the download helper without opening a terminal. a startup-folder copy launches it when you sign in.
 - scripts/download-runner.py: adds alternate-upload fallback to the python song downloader.
+- scripts/local-catalogue.ps1: reuses unchanged local-song metadata and reads new files in the background.
+- scripts/repair-spicetify.ps1: preserves the scrolling compatibility fix when spicetify is applied or updated.
 - scripts/link-helper.ps1: downloads youtube/soundcloud audio into Local Songs, tracks import jobs and reports source errors.
 - scripts/setup-link-tools.ps1: finds compatible installed download tools and only downloads missing tools into dependencies.
 - dependencies/yt-dlp.exe: optional managed link downloader. an existing compatible yt-dlp installation is used instead when available.
@@ -121,7 +123,7 @@ Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $cu
 Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "scripts\download-runner.py") -Force
 . (Join-Path $customDir 'scripts\download-helper.ps1') -NoListen
 Get-Downloader | Out-Null
-foreach ($file in @('link-helper.ps1','setup-link-tools.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
+foreach ($file in @('link-helper.ps1','setup-link-tools.ps1','local-catalogue.ps1','repair-spicetify.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
 & (Join-Path $customDir 'scripts\setup-link-tools.ps1')
 
 $dlHelperScript = Join-Path $customDir "scripts\download-helper.ps1"
@@ -155,6 +157,7 @@ spicetify config custom_apps lyrics-plus
 spicetify config extensions download.js
 spicetify config extensions link-import.js
 spicetify restore 2>$null
+& (Join-Path $env:LOCALAPPDATA 'spotify-remastered\scripts\repair-spicetify.ps1')
 spicetify backup apply
 spicetify apply
 
@@ -177,6 +180,7 @@ if ($spice) {
     Remove-Job $job -Force -ErrorAction SilentlyContinue
 }
 Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
+& (Join-Path $env:LOCALAPPDATA 'spotify-remastered\scripts\repair-spicetify.ps1')
 spicetify backup apply
 Start-Sleep -Seconds 5
 '@

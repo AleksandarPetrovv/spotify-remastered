@@ -220,7 +220,8 @@ const VideoManager = {
      * @param {string} query - Cleaned search query
      * @returns {Promise<Array<{videoId: string, title: string, author: string, lengthSeconds: number}>>}
      */
-    async _searchDirectYoutube(query) {
+    async _searchDirectYoutube(query, signal = null) {
+        if (signal?.aborted) return [];
         const url = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`;
         
         
@@ -234,11 +235,11 @@ const VideoManager = {
             // Try CosmosAsync first to bypass CORS
             if (window.Spicetify?.CosmosAsync?.get) {
                 try {
-                    const timeoutPromise = new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error("CosmosAsync timeout")), 8000)
-                    );
+                    let timer;
+                    const timeoutPromise = new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("CosmosAsync timeout")), 8000); });
                     const fetchPromise = window.Spicetify.CosmosAsync.get(url, null, headers);
-                    const data = await Promise.race([fetchPromise, timeoutPromise]);
+                    const data = await Promise.race([fetchPromise, timeoutPromise]).finally(() => clearTimeout(timer));
+                    if (signal?.aborted) return [];
                     html = typeof data === "string" ? data : JSON.stringify(data);
                 } catch (cosmosErr) {
                     console.warn("[VideoManager] CosmosAsync direct search failed, trying fetch fallback...", cosmosErr.message);
@@ -246,15 +247,15 @@ const VideoManager = {
             }
 
             // Fallback to fetch (which will likely fail due to CORS in Spotify UI, but kept as absolute fallback)
+            if (signal?.aborted) return [];
             if (!html) {
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
                 
                 const response = await fetch(url, {
                     headers,
-                    signal: controller.signal
-                });
-                clearTimeout(timeoutId);
+                    signal: signal ? AbortSignal.any([signal, controller.signal]) : controller.signal
+                }).finally(() => clearTimeout(timeoutId));
                 
                 if (!response.ok) {
                     console.warn(`[VideoManager] Direct YouTube search returned status: ${response.status}`);
@@ -368,7 +369,9 @@ const VideoManager = {
      * @param {Object} [trackInfo] - Metadata for scoring
      * @returns {Promise<Array<{videoId: string, title: string, author: string, lengthSeconds: number}>>}
      */
-    async _searchInvidiousConcurrent(query, trackUri = null, trackInfo = null) {
+    async _searchInvidiousConcurrent(query, trackUri = null, trackInfo = null, signal = null) {
+        if (signal?.aborted) return [];
+        const raceController = new AbortController();
         const instances = await this._getDynamicInvidiousInstances();
         const toTest = instances.slice(0, 4); // Run top 4 in parallel
         
@@ -380,7 +383,7 @@ const VideoManager = {
             try {
                 const response = await fetch(url, {
                     headers: { "Accept": "application/json" },
-                    signal: controller.signal
+                    signal: AbortSignal.any([controller.signal, raceController.signal, ...(signal ? [signal] : [])])
                 });
                 clearTimeout(timeoutId);
                 
@@ -427,7 +430,7 @@ const VideoManager = {
         } catch (e) {
             console.warn("[VideoManager] Concurrent Invidious search failed on all instances:", e.message);
             return [];
-        }
+        } finally { raceController.abort(); }
     },
 
     /**
@@ -569,7 +572,7 @@ const VideoManager = {
         
         try {
             // Try Direct YouTube Scrape (highly accurate, fast, domestic IP bypasses bot bans)
-            let candidates = await this._searchDirectYoutube(query);
+            let candidates = await this._searchDirectYoutube(query, abortSignal);
             let source = "youtube_direct";
             
             // Check if aborted after fetch
@@ -596,7 +599,7 @@ const VideoManager = {
             // Fallback to Invidious if direct search returned nothing
             if (!bestVideo) {
                 
-                const invidiousCandidates = await this._searchInvidiousConcurrent(query, trackInfo.uri, trackInfo);
+                const invidiousCandidates = await this._searchInvidiousConcurrent(query, trackInfo.uri, trackInfo, abortSignal);
                 
                 if (invidiousCandidates && invidiousCandidates.length > 0) {
                     // Filter out blacklisted candidates
@@ -610,6 +613,7 @@ const VideoManager = {
                 }
             }
 
+            if (abortSignal.aborted || (!isSilent && this._lastFetchUri !== trackInfo.uri)) return null;
             if (bestVideo && bestVideo.videoId) {
                 const videoId = bestVideo.videoId;
                 const videoTitle = bestVideo.title || `${trackInfo.artist} - ${trackInfo.title}`;
@@ -626,6 +630,7 @@ const VideoManager = {
                     
                 }
                 
+                if (abortSignal.aborted || (!isSilent && this._lastFetchUri !== trackInfo.uri)) return null;
                 const videoData = {
                     video_id: videoId,
                     sync_offset: syncOffset,
@@ -648,7 +653,7 @@ const VideoManager = {
             console.error(`[VideoManager] Video search failed:`, e.message);
         }
 
-        if (!isSilent) {
+        if (!isSilent && this._lastFetchUri === trackInfo.uri) {
             this._currentVideo = null;
         }
         return null;

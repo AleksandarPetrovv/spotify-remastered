@@ -118,18 +118,40 @@ const estimateLineDuration = (line, stats) => {
     return Math.max(MIN_LINE_DUR, len * (stats?.msPerChar || DEFAULT_MS_PER_CHAR));
 };
 
+const currentLyricsPosition = () => (Spicetify.Player.getProgress() || 0) + CONFIG.visual['global-delay'] + CONFIG.visual.delay;
+const useLineBoundaryPosition = timelineRef => {
+    const [sample, setSample] = useState(() => ({ position: currentLyricsPosition(), index: -1, paused: !Spicetify.Player.isPlaying() }));
+    useTrackPosition(() => {
+        const position = currentLyricsPosition();
+        const timeline = timelineRef.current;
+        let index = 0;
+        for (let i = timeline.length - 1; i >= 0; i--) {
+            if (position + SCROLL_LEAD_MS >= (timeline[i].startTime || 0)) { index = i; break; }
+        }
+        const paused = !Spicetify.Player.isPlaying();
+        setSample(previous => previous.index === index && previous.paused === paused ? previous : { position, index, paused });
+    });
+    return sample.position;
+};
+const LiveKaraokeLine = react.memo(props => {
+    const [position, setPosition] = useState(currentLyricsPosition);
+    useTrackPosition(() => setPosition(currentLyricsPosition()), props.isActive);
+    return react.createElement(KaraokeLine, { ...props, position });
+});
+const LiveIdlingIndicator = react.memo(react.forwardRef(({ startTime, nextStartTime, exitLead = 0, ...props }, ref) => {
+    const [position, setPosition] = useState(currentLyricsPosition);
+    const ticking = props.isActive || (position >= nextStartTime - SCROLL_LEAD_MS && position < nextStartTime);
+    useTrackPosition(() => setPosition(currentLyricsPosition()), ticking);
+    useEffect(() => setPosition(currentLyricsPosition()), [props.isActive, props.positionIndex, startTime, nextStartTime]);
+    const duration = nextStartTime - startTime;
+    return react.createElement(IdlingIndicator, { ...props, ref, progress: Math.min(Math.max((position-startTime)/duration,0),1), isExiting: position >= nextStartTime-exitLead });
+}));
+
 const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara }) => {
-    const [position, setPosition] = useState(() => (Spicetify.Player.getProgress() || 0) + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
+    const timelineRef = useRef([]);
+    const position = useLineBoundaryPosition(timelineRef);
     const activeLineEle = useRef();
     const lyricContainerEle = useRef();
-
-    useTrackPosition(() => {
-        const newPos = Spicetify.Player.getProgress();
-        const delay = CONFIG.visual["global-delay"] + CONFIG.visual.delay;
-        if (newPos !== position) {
-            setPosition(newPos + delay);
-        }
-    });
 
     const lyricWithEmptyLines = useMemo(() => {
         const raw = [emptyLine, emptyLine, ...lyrics];
@@ -255,6 +277,7 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 
     const lyricsId = useMemo(() => lyrics[0]?.text || "no-lyrics", [lyrics]);
 
+    timelineRef.current = lyricWithEmptyLines;
     const activeLineIndex = useMemo(() => {
         // Unsynced lyrics (e.g. Genius) have no startTime; without this guard the
         // loop below matches the LAST line (position >= 0 always true) and the
@@ -272,18 +295,28 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
         return 0;
     }, [lyricWithEmptyLines, position]);
 
-    // The --offset below is measured from the active line's ref, which isn't attached
-    // on the first render. While playing, position ticks force a re-measure; when paused
-    // on launch nothing does, so force one recompute after the active line settles.
-    const [, recomputeOffset] = useState(0);
+    const [offset, setOffset] = useState(0);
     react.useLayoutEffect(() => {
-        recomputeOffset((n) => n + 1);
-    }, [activeLineIndex, lyricWithEmptyLines]);
+        let frame = 0;
+        let stopped = false;
+        const measure = () => {
+            frame = 0;
+            if (stopped) return;
+            const page = lyricContainerEle.current;
+            const active = activeLineEle.current;
+            const next = (page?.clientHeight || 0)/2 - (active ? active.offsetTop + active.clientHeight/2 : 0);
+            setOffset(old => old === next ? old : next);
+        };
+        const schedule = () => { if (!stopped && !frame) frame = requestAnimationFrame(measure); };
+        const observer = new ResizeObserver(schedule);
+        if (lyricContainerEle.current) observer.observe(lyricContainerEle.current);
+        if (activeLineEle.current) observer.observe(activeLineEle.current);
+        measure();
+        document.fonts?.ready.then(schedule);
+        window.addEventListener('resize', schedule);
+        return () => { stopped = true; cancelAnimationFrame(frame); observer.disconnect(); window.removeEventListener('resize', schedule); };
+    }, [activeLineIndex, lyricWithEmptyLines, CONFIG.visual['font-size']]);
 
-    let offset = lyricContainerEle.current ? lyricContainerEle.current.clientHeight / 2 : 0;
-    if (activeLineEle.current) {
-        offset += -(activeLineEle.current.offsetTop + activeLineEle.current.clientHeight / 2);
-    }
     return react.createElement(
         "div",
         {
@@ -337,7 +370,8 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
                     const elapsed = position - startTime;
                     const progress = Math.min(Math.max(elapsed / duration, 0), 1);
 
-                    return react.createElement(IdlingIndicator, {
+                    return react.createElement(LiveIdlingIndicator, {
+                        startTime, nextStartTime,
                         isActive: isActive,
                         progress: progress,
                         delay: duration / 3,
@@ -382,7 +416,7 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
                             // For Furigana/Hiragana HTML strings
                             ...(typeof mainText === "string" && !isKara ? { dangerouslySetInnerHTML: { __html: Utils.rubyTextToHTML(mainText) } } : {}),
                         },
-                        !isKara ? (typeof mainText === "string" ? null : mainText) : react.createElement(KaraokeLine, { text: mainText, startTime, position, isActive: i === activeLineIndex })
+                        !isKara ? (typeof mainText === "string" ? null : mainText) : react.createElement(LiveKaraokeLine, { text: mainText, startTime, isActive: i === activeLineIndex })
                     ),
                     (() => {
                         if (!subText) return null;
@@ -419,14 +453,11 @@ const SyncedLyricsPage = react.memo(({ lyrics = [], provider, copyright, isKara 
 });
 
 const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKara }) => {
-    const [position, setPosition] = useState(() => (Spicetify.Player.getProgress() || 0) + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
+    const timelineRef = useRef([]);
+    const position = useLineBoundaryPosition(timelineRef);
     const programmaticScroll = useRef(false);
     const activeLineRef = useRef(null);
     const pageRef = useRef(null);
-
-    useTrackPosition(() => {
-        setPosition(Spicetify.Player.getProgress() + CONFIG.visual["global-delay"] + CONFIG.visual.delay);
-    });
 
     const padded = useMemo(() => {
         const raw = [emptyLine, ...lyrics];
@@ -535,6 +566,8 @@ const SyncedExpandedLyricsPage = react.memo(({ lyrics, provider, copyright, isKa
         return merged;
     }, [lyrics]);
 
+timelineRef.current = padded;
+
 const initialScroll = useRef(true);
 
 useEffect(() => {
@@ -634,7 +667,8 @@ useEffect(() => {
                 const elapsed = position - startTime;
                 const progress = Math.min(Math.max(elapsed / duration, 0), 1);
 
-                return react.createElement(IdlingIndicator, {
+                return react.createElement(LiveIdlingIndicator, {
+                    startTime, nextStartTime, exitLead: 500,
                     isActive: isActive,
                     progress: progress,
                     delay: duration / 3,
@@ -680,7 +714,7 @@ useEffect(() => {
                         // For Furigana/Hiragana HTML strings
                         ...(typeof mainText === "string" && !isKara ? { dangerouslySetInnerHTML: { __html: Utils.rubyTextToHTML(mainText) } } : {}),
                     },
-                    !isKara ? (typeof mainText === "string" ? null : mainText) : react.createElement(KaraokeLine, { text: mainText, startTime, position, isActive })
+                    !isKara ? (typeof mainText === "string" ? null : mainText) : react.createElement(LiveKaraokeLine, { text: mainText, startTime, isActive })
                 ),
                 subText && react.createElement("p", {
                     className: "lyrics-lyricsContainer-LyricsLine-sub",

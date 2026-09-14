@@ -103,12 +103,18 @@
 	}
 
 	const hideNavLink = () => {
-		document.querySelectorAll(".main-globalNav-navLink").forEach(el => {
-			if (el.innerHTML.includes("M13.426")) {
-				el.parentElement.style.display = "none";
-			}
-		});
-	};
-	hideNavLink();
-	new MutationObserver(() => hideNavLink()).observe(document.body, { childList: true, subtree: true });
+        const nav = document.querySelector('.Root__globalNav');
+        if (!nav) return;
+        nav.querySelectorAll('button.main-globalNav-navLink,a.main-globalNav-navLink,[role="button"].main-globalNav-navLink').forEach(control => {
+            if (control.querySelector('path[d^="M13.426"]')) control.style.display = 'none';
+        });
+        nav.querySelectorAll('a[href="/lyrics-plus"],a[href="/lyrics"]').forEach(link => {
+            link.style.display = 'none';
+        });
+    };
+    hideNavLink();
+    const nav = document.querySelector('.Root__globalNav');
+    if (nav) new MutationObserver(records => {
+        if (records.some(record => [...record.addedNodes].some(node => node.nodeType === 1))) hideNavLink();
+    }).observe(nav, { childList: true, subtree: true });
 })();

@@ -78,6 +78,7 @@ cp "$REPO/hazy/extensions/link-import.js" "$EXTENSIONS_DIR/link-import.js"
 PREV_THEME=$(spicetify config current_theme 2>/dev/null | xargs)
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
 mkdir -p "$CUSTOM_DIR" "$CUSTOM_DIR/dependencies" "$CUSTOM_DIR/scripts" "$CUSTOM_DIR/data" "$CUSTOM_DIR/cache"
+cp "$REPO/hazy/extensions/repair-spicetify.py" "$CUSTOM_DIR/scripts/repair-spicetify.py"
 PREV_THEME_FILE="$CUSTOM_DIR/data/prev-theme.txt"
 if [ -n "$PREV_THEME" ] && [ "$PREV_THEME" != "Hazy" ] && [ ! -f "$PREV_THEME_FILE" ]; then
     echo "$PREV_THEME" > "$PREV_THEME_FILE"
@@ -107,6 +108,7 @@ here is what each file and folder does (optional items may not be present):
 - scripts/download-helper.sh: handles download requests on port 27382 and song folder selection.
 - scripts/download-playlist.py: handles playlist/album jobs, progress, cancellation and saved-file verification; requires python 3.
 - scripts/download-runner.py: adds alternate-upload fallback when the python downloader is installed.
+- scripts/repair-spicetify.py: preserves the scrolling compatibility fix when spicetify is applied or updated.
 - scripts/link-helper.py: downloads youtube/soundcloud audio into Local Songs and tracks import jobs; requires python 3.
 - scripts/setup-link-tools.py: reuses compatible installed tools and installs missing download tools into dependencies.
 - dependencies/yt-dlp: optional managed link downloader, used when no compatible installed copy is available.
@@ -139,6 +141,7 @@ spicetify config inject_theme_js 1
 spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
 spicetify restore 2>/dev/null || true
+python3 "$HOME/.local/share/spotify-remastered/scripts/repair-spicetify.py"
 spicetify backup apply
 spicetify apply
 
@@ -158,6 +161,7 @@ if [ -n "$SPICE" ]; then
     kill "$TIMER_PID" 2>/dev/null || true
 fi
 pkill -9 -xi spotify >/dev/null 2>&1 || true
+python3 "$HOME/.local/share/spotify-remastered/scripts/repair-spicetify.py"
 spicetify backup apply
 sleep 5
 HELPEREOF

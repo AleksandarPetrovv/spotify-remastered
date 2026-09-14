@@ -3,6 +3,7 @@
 
 const IDBCache = {
     _db: null,
+    _opening: null,
     _dbName: 'lyrics-plus-cache',
     _storeName: 'translations',
     _version: 1,
@@ -14,7 +15,8 @@ const IDBCache = {
     async _getDB() {
         if (this._db) return this._db;
 
-        return new Promise((resolve, reject) => {
+        if (this._opening) return this._opening;
+        this._opening = new Promise((resolve, reject) => {
             const request = indexedDB.open(this._dbName, this._version);
 
             request.onerror = () => {
@@ -24,7 +26,11 @@ const IDBCache = {
 
             request.onsuccess = () => {
                 this._db = request.result;
-                resolve(this._db);
+                const connection = this._db;
+                const forget = () => { if (this._db === connection) this._db = null; };
+                connection.onversionchange = () => { connection.close(); forget(); };
+                connection.onclose = forget;
+                resolve(connection);
             };
 
             request.onupgradeneeded = (event) => {
@@ -34,7 +40,8 @@ const IDBCache = {
 
                 }
             };
-        });
+        }).finally(() => { this._opening = null; });
+        return this._opening;
     },
 
     /**
@@ -48,7 +55,7 @@ const IDBCache = {
         try {
             const db = await this._getDB();
             return new Promise((resolve) => {
-                const tx = db.transaction(this._storeName, 'readonly');
+                const tx = db.transaction(this._storeName, 'readwrite');
                 const store = tx.objectStore(this._storeName);
                 const request = store.get(key);
 
@@ -57,6 +64,7 @@ const IDBCache = {
                     if (result && result.expiry > Date.now()) {
                         resolve(result.data);
                     } else {
+                        if (result && !key.startsWith("video-manual:") && !key.startsWith("video-offset:") && result.data?.provider !== "local") store.delete(key);
                         resolve(null);
                     }
                 };
@@ -70,6 +78,19 @@ const IDBCache = {
             console.warn('[IDBCache] Get failed:', e);
             return null;
         }
+    },
+
+    async setMany(entries, ttl) {
+        if (!entries.length) return true;
+        const db = await this._getDB();
+        return new Promise(resolve => {
+            const tx = db.transaction(this._storeName, 'readwrite');
+            const store = tx.objectStore(this._storeName);
+            const now = Date.now();
+            for (const [key, data] of entries) store.put({ key, data, expiry: now + ttl, lastAccessed: now });
+            tx.oncomplete = () => resolve(true);
+            tx.onerror = tx.onabort = () => resolve(false);
+        });
     },
 
     /**

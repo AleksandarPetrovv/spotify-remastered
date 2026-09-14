@@ -75,6 +75,8 @@ class LyricsContainer extends react.Component {
       translationStatus: null, // { type, text, trackUri? } — progress/success pill (e.g. cache clear)
       videoBackground: null, // { video_id: string, sync_offset: number, title: string, has_subtitles: boolean }
     };
+    this._disposed = false;
+    this._lyricsRequest = 0;
     this.currentTrackUri = "";
     this.nextTrackUri = "";
     this.availableModes = [];
@@ -100,7 +102,12 @@ class LyricsContainer extends react.Component {
     this.pretranslateInterval = null;
   }
 
+  setState(update, callback) {
+    if (!this._disposed) super.setState(update, callback);
+  }
+
   async fetchVideoBackgroundWithLyrics(track, lyrics = []) {
+    if (this._disposed) return;
 
     const info = this.infoFromTrack(track);
     if (!info) {
@@ -127,7 +134,7 @@ class LyricsContainer extends react.Component {
 
     // RACE CONDITION FIX: Check if a newer request has started
     // If _lastVideoRequestUri was overwritten by a newer request, ignore this stale response
-    if (this._lastVideoRequestUri !== info.uri) {
+    if (this._disposed || this._lastVideoRequestUri !== info.uri) {
 
       return; // Don't update state with stale data
     }
@@ -743,21 +750,24 @@ class LyricsContainer extends react.Component {
     // Delegate to LyricsFetcher, then update state
     const colors = await LyricsFetcher.fetchColors(uri);
     // Only update if request still valid (colors not null)
-    if (colors) this.setState({ colors });
+    if (!this._disposed && uri === this.currentTrackUri && colors) this.setState({ colors });
   }
 
   async fetchTempo(uri) {
     // Delegate to LyricsFetcher, then update state
     const tempo = await LyricsFetcher.fetchTempo(uri);
-    this.setState({ tempo });
+    if (!this._disposed && uri === this.currentTrackUri) this.setState({ tempo });
   }
 
   async tryServices(trackInfo, mode = -1, options = {}) {
+    if (this._disposed) return null;
     // Delegate to LyricsFetcher
     return LyricsFetcher.tryServices(trackInfo, mode, options);
   }
 
   async fetchLyrics(track, mode = -1, refresh = false) {
+    if (this._disposed) return;
+    const requestGeneration = ++this._lyricsRequest;
     const info = this.infoFromTrack(track);
     if (!info) {
       this.setState({ error: "No track info" });
@@ -872,7 +882,7 @@ class LyricsContainer extends react.Component {
           const resp = await this.tryServices(info, mode);
 
           // Critical: Ensure we are still on the same track
-          if (info.uri !== this.currentTrackUri) return;
+          if (this._disposed || requestGeneration !== this._lyricsRequest || info.uri !== this.currentTrackUri) return;
 
           if (resp.provider) {
             // Mark upgrade as attempted for this session
@@ -884,7 +894,7 @@ class LyricsContainer extends react.Component {
 
           isCached = this.lyricsSaved(resp.uri);
 
-          if (resp.uri === this.currentTrackUri) {
+          if (!this._disposed && requestGeneration === this._lyricsRequest && resp.uri === this.currentTrackUri) {
             tempState = { ...resp, isLoading: false, isCached };
           } else {
             return;
@@ -932,7 +942,7 @@ class LyricsContainer extends react.Component {
     // and lags during rapid skips, which let a previous track's (esp. slow Genius)
     // result paint over the new song. Also compare against the live player URI.
     const livePlayerUri = Spicetify.Player?.data?.item?.uri;
-    if (info.uri !== this.currentTrackUri) return;
+    if (this._disposed || requestGeneration !== this._lyricsRequest || info.uri !== this.currentTrackUri) return;
     if (livePlayerUri && info.uri !== livePlayerUri) return;
 
     let finalMode = mode;
@@ -1178,82 +1188,6 @@ class LyricsContainer extends react.Component {
       this._dmResults[currentUri] = { mode1: null, mode2: null };
     }
 
-
-    // Fix Uncaught Promise in onQueueChange
-    this.onQueueChange = async ({ data: queue }) => {
-      try {
-        if (!queue) return;
-
-        this.state.explicitMode = this.state.lockMode;
-        this.currentTrackUri = queue.current.uri;
-
-        // Pre-emptive clear: If not in L1 cache, clear lyrics immediately to prevent showing old song's lyrics
-        // This addresses "Lyrics don't switch" by ensuring at least a blank slate while fetching
-        if (!CacheManager.getSync(queue.current.uri)) {
-          this._setCurrentLyrics([]);
-        }
-
-        this.fetchLyrics(queue.current, this.state.explicitMode);
-        this.viewPort.scrollTo(0, 0);
-
-        this.pretranslatedUri = null;
-
-        // 1. Get next track info
-        const nextTrack = queue.queued?.[0] || queue.nextUp?.[0];
-        if (!nextTrack) return;
-
-        const nextUri = nextTrack.uri;
-        // Debounce next track fetch
-        if (nextUri === this.nextTrackUri) return;
-        this.nextTrackUri = nextUri;
-
-        // 2. Check cache for raw lyrics (validate it's real lyrics, not a stale state snapshot)
-        let rawLyrics = await CacheManager.get(nextUri);
-        if (rawLyrics) {
-          const hasSynced =
-            Array.isArray(rawLyrics.synced) && rawLyrics.synced.length > 0;
-          const hasUnsynced =
-            Array.isArray(rawLyrics.unsynced) && rawLyrics.unsynced.length > 0;
-          const hasGenius =
-            rawLyrics.genius &&
-            typeof rawLyrics.genius === "string" &&
-            rawLyrics.genius.length > 0;
-          if (!hasSynced && !hasUnsynced && !hasGenius) {
-            rawLyrics = null; // Stale cache, treat as miss
-          }
-        }
-
-        const nextInfo = {
-          uri: nextUri,
-          artist: nextTrack.metadata?.artist_name,
-          title: nextTrack.metadata?.title,
-          duration: nextTrack.metadata?.duration,
-          album: nextTrack.metadata?.album_title,
-          images: nextTrack.metadata?.image_url,
-        };
-
-        if (!rawLyrics) {
-          // Fetch raw lyrics if not cached
-          // Note: tryServices returns data but doesn't set state
-          try {
-            rawLyrics = await this.tryServices(nextInfo, -1, {
-              skipStaleCheck: true,
-            });
-          } catch (err) {
-            console.warn(
-              "[Lyrics+] Failed to pre-fetch next track lyrics:",
-              err,
-            );
-          }
-
-          if (rawLyrics) {
-            CacheManager.set(nextUri, rawLyrics);
-          }
-        }
-      } catch (error) {
-        console.error("[Lyrics+] Error in onQueueChange:", error);
-      }
-    };
 
     // Get current results - always read from _dmResults to avoid stale closure
     const getResults = () => ({
@@ -1649,6 +1583,7 @@ class LyricsContainer extends react.Component {
       try {
         // Show pending notification if conversion takes longer than 3s
         pendingTimer = setTimeout(() => {
+          if (this._disposed) return;
           try {
             Spicetify.showNotification(
               getText("notifications.stillConverting"),
@@ -1721,6 +1656,7 @@ class LyricsContainer extends react.Component {
   }
 
   async translateLyrics(language, lyrics, targetConvert) {
+    if (this._disposed) return lyrics;
     // Debug logging
 
 
@@ -1732,6 +1668,7 @@ class LyricsContainer extends react.Component {
       this.translator = new Translator(language);
     }
     await this.translator.awaitFinished(language);
+    if (this._disposed) return lyrics;
 
     let result;
     try {
@@ -2191,42 +2128,81 @@ class LyricsContainer extends react.Component {
     };
 
     this.onQueueChange = async ({ data: queue }) => {
-      this.state.explicitMode = this.state.lockMode;
-      this.currentTrackUri = queue.current.uri;
-      this.fetchLyrics(queue.current, this.state.explicitMode);
-      this.viewPort.scrollTo(0, 0);
+      try {
+        if (this._disposed || !queue?.current) return;
 
-      this.pretranslatedUri = null;
+        const needsLyrics = queue.current.uri !== this.currentTrackUri || (!this.state.currentLyrics?.length && !this.state.isLoading);
+        this.state.explicitMode = this.state.lockMode;
+        this.currentTrackUri = queue.current.uri;
 
-      // 1. Get next track info
-      const nextTrack = queue.queued?.[0] || queue.nextUp?.[0];
-      if (!nextTrack) return;
+        // Pre-emptive clear: If not in L1 cache, clear lyrics immediately to prevent showing old song's lyrics
+        // This addresses "Lyrics don't switch" by ensuring at least a blank slate while fetching
+        if (needsLyrics && !CacheManager.getSync(queue.current.uri)) {
+          this._setCurrentLyrics([]);
+        }
 
-      const nextUri = nextTrack.uri;
-      // Debounce next track fetch
-      if (nextUri === this.nextTrackUri) return;
-      this.nextTrackUri = nextUri;
+        if (needsLyrics) {
+          this.fetchLyrics(queue.current, this.state.explicitMode);
+          this.viewPort?.scrollTo(0, 0);
+        }
 
-      // 2. Check cache for raw lyrics
-      let rawLyrics = await CacheManager.get(nextUri);
+        this.pretranslatedUri = null;
 
-      if (!rawLyrics) {
-        // Fetch raw lyrics if not cached
+        // 1. Get next track info
+        const nextTrack = queue.queued?.[0] || queue.nextUp?.[0];
+        if (!nextTrack) return;
+
+        const nextUri = nextTrack.uri;
+        // Debounce next track fetch
+        if (nextUri === this.nextTrackUri) return;
+        this.nextTrackUri = nextUri;
+
+        // 2. Check cache for raw lyrics (validate it's real lyrics, not a stale state snapshot)
+        let rawLyrics = await CacheManager.get(nextUri);
+        if (this._disposed || this.nextTrackUri !== nextUri) return;
+        if (rawLyrics) {
+          const hasSynced =
+            Array.isArray(rawLyrics.synced) && rawLyrics.synced.length > 0;
+          const hasUnsynced =
+            Array.isArray(rawLyrics.unsynced) && rawLyrics.unsynced.length > 0;
+          const hasGenius =
+            rawLyrics.genius &&
+            typeof rawLyrics.genius === "string" &&
+            rawLyrics.genius.length > 0;
+          if (!hasSynced && !hasUnsynced && !hasGenius) {
+            rawLyrics = null; // Stale cache, treat as miss
+          }
+        }
+
         const nextInfo = {
           uri: nextUri,
-          artist: nextTrack.metadata.artist_name,
-          title: nextTrack.metadata.title,
-          duration: nextTrack.metadata.duration,
-          album: nextTrack.metadata.album_title,
-          images: nextTrack.metadata.image_url,
+          artist: nextTrack.metadata?.artist_name,
+          title: nextTrack.metadata?.title,
+          duration: nextTrack.metadata?.duration,
+          album: nextTrack.metadata?.album_title,
+          images: nextTrack.metadata?.image_url,
         };
 
-        // Note: tryServices returns data but doesn't set state
-        rawLyrics = await this.tryServices(nextInfo);
+        if (!rawLyrics) {
+          // Fetch raw lyrics if not cached
+          // Note: tryServices returns data but doesn't set state
+          try {
+            rawLyrics = await this.tryServices(nextInfo, -1, {
+              skipStaleCheck: true,
+            });
+          } catch (err) {
+            console.warn(
+              "[Lyrics+] Failed to pre-fetch next track lyrics:",
+              err,
+            );
+          }
 
-        if (rawLyrics) {
-          CacheManager.set(nextUri, rawLyrics);
+          if (rawLyrics && !this._disposed && this.nextTrackUri === nextUri) {
+            CacheManager.set(nextUri, rawLyrics);
+          }
         }
+      } catch (error) {
+        console.error("[Lyrics+] Error in onQueueChange:", error);
       }
     };
 
@@ -2238,7 +2214,8 @@ class LyricsContainer extends react.Component {
     }
 
     this.updateVisualOnConfigChange();
-    Utils.addQueueListener(this.onQueueChange);
+    this._registeredQueueListener = this.onQueueChange;
+    Utils.addQueueListener(this._registeredQueueListener);
 
     lyricContainerUpdate = () => {
       // Clear per-track translation results so display mode changes take effect immediately
@@ -2330,14 +2307,25 @@ class LyricsContainer extends react.Component {
     };
     this.mousetrap.reset();
     this.mousetrap.bind(CONFIG.visual["fullscreen-key"], this.toggleFullscreen);
-    window.addEventListener("fad-request", lyricContainerUpdate);
+    this._configUpdate = lyricContainerUpdate;
+    this._reloadLyrics = reloadLyrics;
+    window.addEventListener("fad-request", this._configUpdate);
   }
 
   componentWillUnmount() {
-    Utils.removeQueueListener(this.onQueueChange);
+    this._disposed = true;
+    this._lyricsRequest++;
+    this.currentTrackUri = "";
+    Utils.removeQueueListener(this._registeredQueueListener);
+    if (lyricContainerUpdate === this._configUpdate) lyricContainerUpdate = () => {};
+    if (reloadLyrics === this._reloadLyrics) reloadLyrics = () => {};
+    this.fullscreenContainer.remove();
+    this.translator = null;
+    this._lastVideoRequestUri = null;
+    if (window.VideoManager?._lastFetchUri === this.state.uri) window.VideoManager._retryAbortController?.abort();
     this.configButton.deregister();
     this.mousetrap.reset();
-    window.removeEventListener("fad-request", lyricContainerUpdate);
+    window.removeEventListener("fad-request", this._configUpdate);
 
     if (this.pretranslateInterval) {
       clearInterval(this.pretranslateInterval);
@@ -2691,7 +2679,7 @@ class LyricsContainer extends react.Component {
         className: "lyrics-lyricsContainer-LyricsBackground",
       }),
       // Translation status pill: portal'd & anchored to the live lyrics container's top-right.
-      react.createElement(window.TranslationStatusOverlay, {
+      translationStatusForTrack && react.createElement(window.TranslationStatusOverlay, {
         status: translationStatusForTrack,
         currentUri: trackUriNow,
       }),

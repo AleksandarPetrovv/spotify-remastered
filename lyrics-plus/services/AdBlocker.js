@@ -349,7 +349,6 @@
 
     const patchYouTubePlayer = () => {
         if (!window.YT || !window.YT.Player || window.YT.Player.__lyricsPlusAdBlockWrapped) {
-            setTimeout(patchYouTubePlayer, 500);
             return;
         }
 
@@ -433,6 +432,8 @@
         window.YT.Player.__lyricsPlusAdBlockWrapped = true;
 
     };
+
+    window.__lyricsPlusPrepareVideo = patchYouTubePlayer;
 
     const initialize = () => {
         patchFetch();

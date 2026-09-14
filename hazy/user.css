@@ -3248,3 +3248,10 @@ CUSTOM LYRICS STYLES
 
 .Root__globalNav button[data-hazy-settings] { width:32px!important;height:32px!important;min-block-size:0!important;padding:0!important;box-shadow:none!important; }
 .Root__globalNav button[data-hazy-settings] svg { width:18px!important;height:18px!important; }
+
+.Root__main-view :is(.main-shelf-seeAll,.h_yZ6SNejtUhgmQ2zTdo,.L57cORpgM40A_69mmvZ9) {
+  order: 2;
+  margin-inline-start: auto;
+  margin-inline-end: 0;
+  flex-shrink: 0;
+}

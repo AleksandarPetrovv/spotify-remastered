@@ -8,12 +8,20 @@ const CacheManager = {
     _ttl: 365 * 24 * 60 * 60 * 1000, // 1 year TTL
     _persistKey: 'lyrics-plus:translation-cache',
     _migrated: false,
+    _migrationPromise: null,
+    _revision: 0,
+    _l2Queue: Promise.resolve(),
 
     /**
      * Migrate localStorage to IndexedDB (one-time)
      * Called internally on first get/set
      */
-    async _migrate() {
+    _migrate() {
+        if (!this._migrationPromise) this._migrationPromise = this._runMigration();
+        return this._migrationPromise;
+    },
+
+    async _runMigration() {
         if (this._migrated) return;
         this._migrated = true;
 
@@ -58,8 +66,10 @@ const CacheManager = {
         }
 
         // L1 miss - check L2 (IndexedDB)
+        const revision = this._revision;
         await this._migrate();
         const data = await IDBCache.get(key);
+        if (revision !== this._revision) return null;
 
         if (data !== null) {
             // Promote to L1 for fast subsequent access
@@ -92,15 +102,13 @@ const CacheManager = {
      * Internal L1 set with LRU eviction
      */
     _l1Set(key, data) {
-        // Evict oldest if at capacity
+        this._l1Cache.delete(key);
         if (this._l1Cache.size >= this._l1MaxSize) {
-            const entries = Array.from(this._l1Cache.entries())
-                .sort((a, b) => a[1].lastAccessed - b[1].lastAccessed);
-            // Remove oldest 20%
-            const toRemove = Math.max(1, Math.floor(entries.length * 0.2));
-            for (let i = 0; i < toRemove; i++) {
-                this._l1Cache.delete(entries[i][0]);
+            let oldestKey, oldestTime = Infinity;
+            for (const [candidate, item] of this._l1Cache) {
+                if (item.lastAccessed < oldestTime) { oldestKey = candidate; oldestTime = item.lastAccessed; }
             }
+            this._l1Cache.delete(oldestKey);
         }
 
         this._l1Cache.set(key, {
@@ -142,13 +150,20 @@ const CacheManager = {
         this._writeTimeout = setTimeout(() => this._flushL2Writes(), 2000);
     },
 
-    async _flushL2Writes() {
-        await this._migrate();
+    _enqueueL2(operation) {
+        const result = this._l2Queue.then(operation);
+        this._l2Queue = result.catch(() => {});
+        return result;
+    },
 
-        for (const [key, data] of this._pendingWrites) {
-            IDBCache.set(key, data, this._ttl).catch(() => {});
-        }
+    _flushL2Writes() {
+        this._writeTimeout = null;
+        const batch = [...this._pendingWrites];
         this._pendingWrites.clear();
+        return this._enqueueL2(async () => {
+            await this._migrate();
+            await IDBCache.setMany(batch, this._ttl);
+        });
     },
 
     /**
@@ -157,9 +172,10 @@ const CacheManager = {
      * @returns {Promise<boolean>}
      */
     async delete(key) {
+        this._revision++;
+        this._pendingWrites.delete(key);
         const l1Existed = this._l1Cache.delete(key);
-        await this._migrate();
-        const l2Deleted = await IDBCache.delete(key);
+        const l2Deleted = await this._enqueueL2(async () => { await this._migrate(); return IDBCache.delete(key); });
         return l1Existed || l2Deleted;
     },
 
@@ -168,9 +184,12 @@ const CacheManager = {
      * @returns {Promise<void>}
      */
     async clear() {
+        this._revision++;
+        clearTimeout(this._writeTimeout);
+        this._writeTimeout = null;
+        this._pendingWrites.clear();
         this._l1Cache.clear();
-        await this._migrate();
-        await IDBCache.clear();
+        await this._enqueueL2(async () => { await this._migrate(); return IDBCache.clear(); });
 
     },
 
@@ -179,6 +198,7 @@ const CacheManager = {
      * Use for immediate cache invalidation without async
      */
     clearL1() {
+        this._revision++;
         this._l1Cache.clear();
     },
 
@@ -188,6 +208,8 @@ const CacheManager = {
      * @returns {Promise<number>}
      */
     async clearByUri(uri) {
+        this._revision++;
+        for (const key of this._pendingWrites.keys()) if (key.includes(uri)) this._pendingWrites.delete(key);
         let count = 0;
 
         // Clear from L1
@@ -200,8 +222,7 @@ const CacheManager = {
 
         // L2: Clear from IndexedDB too
         try {
-            await this._migrate();
-            const l2Count = await IDBCache.deleteByPattern(uri);
+            const l2Count = await this._enqueueL2(async () => { await this._migrate(); return IDBCache.deleteByPattern(uri); });
             count += l2Count;
         } catch (e) {
             console.warn('[Cache] Failed to clear L2 entries for URI:', uri, e);

@@ -3,25 +3,34 @@
 // This prevents browser iframe reloads (which trigger play overlay flashes) when changing tabs.
 
 const VideoBackground = (() => {
-    let ytApiLoaded = false;
-    let ytApiLoading = false;
-
+    let ytApiPromise = null;
     function ensureYTApi() {
-        if (ytApiLoaded || ytApiLoading) return;
-        if (window.YT && window.YT.Player) {
-            ytApiLoaded = true;
-            return;
+        if (window.YT?.Player) {
+            window.__lyricsPlusPrepareVideo?.();
+            return Promise.resolve();
         }
-        ytApiLoading = true;
-        const tag = document.createElement("script");
-        tag.src = "https://www.youtube.com/iframe_api";
-        const prev = window.onYouTubeIframeAPIReady;
-        window.onYouTubeIframeAPIReady = () => {
-            ytApiLoaded = true;
-            ytApiLoading = false;
-            if (typeof prev === "function") prev();
-        };
-        document.head.appendChild(tag);
+        if (ytApiPromise) return ytApiPromise;
+        ytApiPromise = new Promise((resolve, reject) => {
+            const tag = document.createElement('script');
+            tag.src = 'https://www.youtube.com/iframe_api';
+            const previous = window.onYouTubeIframeAPIReady;
+            const finish = error => {
+                clearTimeout(timer);
+                tag.onerror = null;
+                if (window.onYouTubeIframeAPIReady === ready) window.onYouTubeIframeAPIReady = previous;
+                if (error) { tag.remove(); reject(error); }
+                else { window.__lyricsPlusPrepareVideo?.(); resolve(); }
+            };
+            const ready = () => {
+                try { if (typeof previous === 'function') previous(); }
+                finally { finish(); }
+            };
+            const timer = setTimeout(() => finish(new Error('YouTube player did not load.')), 15000);
+            tag.onerror = () => finish(new Error('YouTube player could not be loaded.'));
+            window.onYouTubeIframeAPIReady = ready;
+            document.head.appendChild(tag);
+        }).catch(error => { ytApiPromise = null; throw error; });
+        return ytApiPromise;
     }
 
     const Component = ({ trackUri, brightness, blurAmount, scale, fullscreen, videoInfo }) => {
@@ -48,7 +57,6 @@ const VideoBackground = (() => {
 
         useEffect(() => {
             isMountedRef.current = true;
-            ensureYTApi();
             return () => {
                 isMountedRef.current = false;
                 if (uiFlashTimeoutRef.current) clearTimeout(uiFlashTimeoutRef.current);
@@ -97,12 +105,9 @@ const VideoBackground = (() => {
             setHasStartedPlaying(false);
             setIsYTReadyToRender(false);
 
+            let cancelled = false;
             const tryCreate = () => {
-                if (!window.YT || !window.YT.Player) {
-                    setTimeout(tryCreate, 100);
-                    return;
-                }
-                if (!isMountedRef.current) return;
+                if (cancelled || !isMountedRef.current || !window.YT?.Player) return;
 
                 const playerDiv = playerDivRef.current;
                 if (!playerDiv) return;
@@ -134,7 +139,7 @@ const VideoBackground = (() => {
                     },
                     events: {
                         onReady: (event) => {
-                            if (!isMountedRef.current) return;
+                            if (cancelled || !isMountedRef.current) return;
                             setIsPlayerReady(true);
                             event.target.mute();
 
@@ -155,7 +160,7 @@ const VideoBackground = (() => {
                             event.target.playVideo();
                         },
                         onStateChange: (event) => {
-                            if (!isMountedRef.current) return;
+                            if (cancelled || !isMountedRef.current) return;
                             const state = event.data;
                             const player = event.target;
 
@@ -204,7 +209,7 @@ const VideoBackground = (() => {
                             }
                         },
                         onError: async (event) => {
-                            if (!isMountedRef.current) return;
+                            if (cancelled || !isMountedRef.current) return;
                             const errorCode = event.data;
                             console.error("[Lyrics+] YouTube Player Error:", errorCode);
                             if ([2, 5, 100, 101, 150].includes(errorCode) && videoInfo && videoInfo.video_id) {
@@ -226,7 +231,13 @@ const VideoBackground = (() => {
                     }
                 });
             };
-            tryCreate();
+            ensureYTApi().then(tryCreate).catch(error => {
+                if (!cancelled && isMountedRef.current) console.warn('[Lyrics+] video readiness:', error.message);
+            });
+            return () => {
+                cancelled = true;
+                if (playerRef.current) { try { playerRef.current.destroy(); } catch {} playerRef.current = null; }
+            };
         }, [videoInfo?.video_id]);
 
         // Sync Logic
@@ -292,11 +303,13 @@ const VideoBackground = (() => {
             const handleInternalSync = () => syncTime();
             window.addEventListener("lyricsPlusSyncRequest", handleInternalSync);
 
-            const onSeek = () => setTimeout(syncTime, 50);
+            let seekTimer = 0;
+            const onSeek = () => { clearTimeout(seekTimer); seekTimer = setTimeout(syncTime, 50); };
             Spicetify.Player.addEventListener("onseek", onSeek);
 
             return () => {
                 clearInterval(syncInterval);
+                clearTimeout(seekTimer);
                 window.removeEventListener("lyricsPlusSyncRequest", handleInternalSync);
                 Spicetify.Player.removeEventListener("onseek", onSeek);
             };

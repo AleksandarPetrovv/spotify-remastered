@@ -75,30 +75,41 @@ const emptyLine = {
     text: [],
 };
 
-const useTrackPosition = (callback) => {
-    const callbackRef = useRef();
-    const rafIdRef = useRef();
+const useTrackPosition = (callback, enabled = true) => {
+    const callbackRef = useRef(callback);
     callbackRef.current = callback;
-
     useEffect(() => {
+        let raf = 0;
+        let stopped = false;
         let lastTime = 0;
-        const updatePosition = (currentTime) => {
-            // Throttle to ~60fps (16ms) instead of running every frame
-            if (currentTime - lastTime >= 16) {
-                callbackRef.current();
-                lastTime = currentTime;
-            }
-            rafIdRef.current = requestAnimationFrame(updatePosition);
+        const tick = time => {
+            raf = 0;
+            if (stopped) return;
+            if (time - lastTime >= 16) { callbackRef.current(); lastTime = time; }
+            if (enabled && Spicetify.Player.isPlaying()) raf = requestAnimationFrame(tick);
         };
-
-        rafIdRef.current = requestAnimationFrame(updatePosition);
-
+        const refresh = () => {
+            if (stopped) return;
+            cancelAnimationFrame(raf);
+            callbackRef.current();
+            raf = enabled && Spicetify.Player.isPlaying() ? requestAnimationFrame(tick) : 0;
+        };
+        refresh();
+        if (enabled) {
+            Spicetify.Player.addEventListener('onplaypause', refresh);
+            Spicetify.Player.addEventListener('onseek', refresh);
+            Spicetify.Player.addEventListener('songchange', refresh);
+        }
         return () => {
-            if (rafIdRef.current) {
-                cancelAnimationFrame(rafIdRef.current);
+            stopped = true;
+            cancelAnimationFrame(raf);
+            if (enabled) {
+                Spicetify.Player.removeEventListener('onplaypause', refresh);
+                Spicetify.Player.removeEventListener('onseek', refresh);
+                Spicetify.Player.removeEventListener('songchange', refresh);
             }
         };
-    }, []);
+    }, [enabled, CONFIG.visual['global-delay'], CONFIG.visual.delay]);
 };
 
 const KaraokeLine = ({ text, isActive, position, startTime }) => {
@@ -450,49 +461,54 @@ window.TranslatingIndicatorRow = TranslatingIndicatorRow;
  */
 const useLyricsContainerRect = () => {
     const [rect, setRect] = useState(null);
-
     useEffect(() => {
         let raf = 0;
+        let movingUntil = 0;
         let stopped = false;
+        let container = null;
+        const resize = new ResizeObserver(() => schedule());
         const update = () => {
+            raf = 0;
             if (stopped) return;
-            // Prefer the deepest visible lyrics container (handles fullscreen / fad / normal)
-            const candidates = [
-                document.querySelector("#lyrics-fullscreen-container .lyrics-lyricsContainer-LyricsContainer"),
-                document.querySelector(".lyrics-lyricsContainer-LyricsContainer.fad-enabled"),
-                document.querySelector(".lyrics-lyricsContainer-LyricsContainer"),
-            ].filter(Boolean);
-            const el = candidates.find((e) => {
-                const r = e.getBoundingClientRect();
-                return r.width > 0 && r.height > 0;
-            });
-            if (!el) {
-                setRect((prev) => (prev ? null : prev));
-                return;
+            const next = document.querySelector('#lyrics-fullscreen-container .lyrics-lyricsContainer-LyricsContainer')
+                || document.querySelector('.lyrics-lyricsContainer-LyricsContainer.fad-enabled')
+                || document.querySelector('.lyrics-lyricsContainer-LyricsContainer');
+            if (next !== container) {
+                resize.disconnect();
+                container = next;
+                if (container) resize.observe(container);
             }
-            const r = el.getBoundingClientRect();
-            setRect((prev) => {
-                if (!prev) return r;
-                if (
-                    Math.abs(prev.top - r.top) < 0.5 &&
-                    Math.abs(prev.right - r.right) < 0.5 &&
-                    Math.abs(prev.width - r.width) < 0.5 &&
-                    Math.abs(prev.height - r.height) < 0.5
-                ) return prev;
+            const r = container?.getBoundingClientRect();
+            setRect(prev => {
+                if (!r || !r.width || !r.height) return null;
+                if (prev && Math.abs(prev.top-r.top)<.5 && Math.abs(prev.right-r.right)<.5 && Math.abs(prev.width-r.width)<.5 && Math.abs(prev.height-r.height)<.5) return prev;
                 return r;
             });
+            if (performance.now() < movingUntil) schedule();
         };
-        const tick = () => { update(); raf = requestAnimationFrame(tick); };
-        raf = requestAnimationFrame(tick);
-        const onResize = () => update();
-        window.addEventListener("resize", onResize);
+        function schedule() { if (!stopped && !raf) raf = requestAnimationFrame(update); }
+        const transition = event => {
+            if (!event.target?.contains?.(container) && !event.target?.closest?.('.Root__right-sidebar,.Root__nav-bar')) return;
+            movingUntil = performance.now() + 1000;
+            schedule();
+        };
+        schedule();
+        window.addEventListener('resize', schedule);
+        window.addEventListener('scroll', schedule, true);
+        document.addEventListener('fullscreenchange', schedule);
+        document.addEventListener('transitionrun', transition, true);
+        document.addEventListener('transitionend', schedule, true);
         return () => {
             stopped = true;
             cancelAnimationFrame(raf);
-            window.removeEventListener("resize", onResize);
+            resize.disconnect();
+            window.removeEventListener('resize', schedule);
+            window.removeEventListener('scroll', schedule, true);
+            document.removeEventListener('fullscreenchange', schedule);
+            document.removeEventListener('transitionrun', transition, true);
+            document.removeEventListener('transitionend', schedule, true);
         };
     }, []);
-
     return rect;
 };
 

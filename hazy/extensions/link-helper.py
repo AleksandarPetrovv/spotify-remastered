@@ -9,6 +9,8 @@ import sys
 import time
 import uuid
 import hashlib
+import fcntl
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 from importlib.util import spec_from_file_location, module_from_spec
@@ -133,22 +135,63 @@ def start(job, state):
         subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--worker', str(job)], stdout=log, stderr=log, start_new_session=True)
 
 
+def local_catalogue():
+    folder = ROOT / 'Local Songs'
+    folder.mkdir(exist_ok=True)
+    cache_dir = ROOT / 'cache'
+    cache_dir.mkdir(exist_ok=True)
+    cache_path = cache_dir / 'local-catalogue.json'
+    with (cache_dir / 'local-catalogue.lock').open('a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            old = json.loads(cache_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            old = {}
+        spec = spec_from_file_location('catalogue_tools', ROOT / 'scripts/download-playlist.py')
+        tools = module_from_spec(spec)
+        spec.loader.exec_module(tools)
+        ffmpeg = tools.managed_ffmpeg()
+        indexes = {}
+        for path in (ROOT / 'data/import-index').glob('*.json'):
+            try:
+                record = json.loads(path.read_text(encoding='utf-8'))
+                indexes[record['file']] = record
+            except (OSError, ValueError, KeyError):
+                continue
+        files = sorted(folder.glob('*.mp3'))
+        def read(audio):
+            try:
+                stat = audio.stat()
+                if not stat.st_size:
+                    return None
+                stamp = f'{stat.st_size}:{stat.st_mtime_ns}'
+                cached = old.get(str(audio))
+                if cached and cached['stamp'] == stamp:
+                    return str(audio), cached
+                result = subprocess.run([ffmpeg, '-hide_banner', '-i', str(audio), '-f', 'ffmetadata', '-'], capture_output=True, text=True, encoding='utf-8', timeout=10)
+                if result.returncode:
+                    return None
+                tags = {key: re.sub(r'\\(.)', r'\1', value) for line in result.stdout.splitlines() if '=' in line for key, value in [line.split('=', 1)]}
+                match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)', result.stderr)
+                duration = int(match[1])*3600+int(match[2])*60+float(match[3]) if match else 0
+                return str(audio), dict(stamp=stamp, tags=tags, duration=duration)
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError):
+                return None
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            entries = dict(item for item in pool.map(read, files) if item)
+        temporary = cache_path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(entries), encoding='utf-8')
+        temporary.replace(cache_path)
+        songs = []
+        for name, entry in entries.items():
+            tags = entry['tags']
+            songs.append(dict(title=tags.get('title') or Path(name).stem, artist=tags.get('artist', ''), source=tags.get('album', ''), duration=entry['duration'], cover=indexes.get(name, {}).get('cover', ''), folder=str(folder)))
+        return dict(status='done', songs=songs, folder=str(folder))
+
+
 def request(route, query, size):
     if route == '/link-local':
-        folder = ROOT / 'Local Songs'
-        folder.mkdir(exist_ok=True)
-        songs = []
-        indexes = [json.loads(path.read_text(encoding='utf-8')) for path in (ROOT / 'data/import-index').glob('*.json')]
-        for audio in folder.glob('*.mp3'):
-            result = subprocess.run([str(ROOT / 'dependencies/ffmpeg'),'-hide_banner','-i',str(audio),'-f','ffmetadata','-'],capture_output=True,text=True,encoding='utf-8',timeout=10)
-            if result.returncode:
-                continue
-            tags = {key:re.sub(r'\\(.)',r'\1',value) for line in result.stdout.splitlines() if '=' in line for key,value in [line.split('=',1)]}
-            match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)',result.stderr)
-            duration = int(match[1])*3600+int(match[2])*60+float(match[3]) if match else 0
-            record = next((item for item in indexes if item['file']==str(audio)),{})
-            songs.append(dict(title=tags.get('title') or audio.stem,artist=tags.get('artist',''),source=tags.get('album',''),duration=duration,cover=record.get('cover',''),folder=str(folder)))
-        return dict(status='done',songs=songs,folder=str(folder))
+        return local_catalogue()
     body = {}
     if route in ('/link-preview', '/link-download'):
         if not 0 < size <= 8192:

@@ -230,10 +230,22 @@
     return url;
   }
 
-  const _colorCache = {};
+  const _colorCache = new Map();
+  const _pendingColors = new Map();
+  let _songGeneration = 0;
+  let _songRetry = 0;
+  let _retryCount = 0;
+  let _retryUri = null;
+  let _lyricsObserver = null;
+  let _lyricsRoot = null;
+  let _lyricsFrame = 0;
   let _cachedFadeTime = null;
 
   async function onSongChange() {
+    const generation = ++_songGeneration;
+    clearTimeout(_songRetry);
+    const uri = Spicetify.Player?.data?.item?.uri;
+    if (uri !== _retryUri) { _retryUri = uri; _retryCount = 0; }
     if (!_cachedFadeTime) {
       _cachedFadeTime = true;
       fetchFadeTime();
@@ -251,7 +263,7 @@
       return;
     } else {
       // When clicking a song from the homepage, songChange is fired with half empty metadata
-      setTimeout(onSongChange, 200);
+      if (_retryCount++ < 10) _songRetry = setTimeout(onSongChange, 200);
     }
 
     updateLyricsPageProperties();
@@ -260,38 +272,45 @@
     if (!toggles.UseCustomColor) {
       const imgSrc = getCurrentBackground();
 
-      if (_colorCache[imgSrc]) {
-        setAccentColor(_colorCache[imgSrc]);
+      if (_colorCache.has(imgSrc)) {
+        const color = _colorCache.get(imgSrc);
+        _colorCache.delete(imgSrc);
+        _colorCache.set(imgSrc, color);
+        setAccentColor(color);
       } else {
-        const img = new Image();
-        img.crossOrigin = "Anonymous";
-
-        img.onload = function () {
-          const sampleSize = 50;
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d", { willReadFrequently: true });
-          canvas.width = sampleSize;
-          canvas.height = sampleSize;
-          ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
-
-          const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize).data;
-
-          const rgbList = [];
-          for (let i = 0; i < imageData.length; i += 4)
-            rgbList.push({
-              r: imageData[i],
-              g: imageData[i + 1],
-              b: imageData[i + 2],
-            });
-
-          let hexColor = findColor(rgbList);
-          if (!hexColor) hexColor = findColor(rgbList, true);
-
-          _colorCache[imgSrc] = hexColor;
-          setAccentColor(hexColor);
-        };
-
-        img.src = imgSrc;
+        if (!_pendingColors.has(imgSrc)) {
+          const pending = new Promise(resolve => {
+            const img = new Image();
+            img.crossOrigin = "Anonymous";
+            const finish = value => { clearTimeout(timer); img.onload = img.onerror = null; resolve(value); };
+            const timer = setTimeout(() => finish(null), 15000);
+            img.onerror = () => finish(null);
+            img.onload = () => {
+              try {
+                const canvas = document.createElement("canvas");
+                canvas.width = canvas.height = 50;
+                const ctx = canvas.getContext("2d", { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0, 50, 50);
+                const data = ctx.getImageData(0, 0, 50, 50).data;
+                const colors = [];
+                for (let i=0;i<data.length;i+=4) colors.push({r:data[i],g:data[i+1],b:data[i+2]});
+                finish(findColor(colors) || findColor(colors, true));
+              } catch { finish(null); }
+            };
+            img.src = imgSrc;
+          }).then(color => {
+            _pendingColors.delete(imgSrc);
+            if (color) {
+              _colorCache.set(imgSrc, color);
+              while (_colorCache.size > 64) _colorCache.delete(_colorCache.keys().next().value);
+            }
+            return color;
+          });
+          _pendingColors.set(imgSrc, pending);
+        }
+        _pendingColors.get(imgSrc).then(color => {
+          if (color && generation === _songGeneration && !toggles.UseCustomColor) setAccentColor(color);
+        });
       }
     } else {
       setAccentColor(localStorage.getItem("CustomColor") || "#ffc0ea");
@@ -424,17 +443,6 @@
 
   Spicetify.Platform.History.listen(updateLyricsPageProperties);
 
-  waitForElement([".Root__lyrics-cinema"], ([lyricsCinema]) => {
-    const lyricsCinemaObserver = new MutationObserver(
-      updateLyricsPageProperties
-    );
-    const lyricsCinemaObserverConfig = {
-      attributes: true,
-      attributeFilter: ["class"],
-    };
-    lyricsCinemaObserver.observe(lyricsCinema, lyricsCinemaObserverConfig);
-  });
-
   waitForElement([".main-view-container"], ([mainViewContainer]) => {
     const mainViewContainerResizeObserver = new ResizeObserver(
       updateLyricsPageProperties
@@ -445,66 +453,39 @@
   // Fixes container shifting & active line clipping
   // Taken from Bloom | https://github.com/nimsandu/spicetify-bloom
   function updateLyricsPageProperties() {
-    function setLyricsPageProperties() {
-      function calculateLyricsMaxWidth(lyricsContentWrapper) {
-        const lyricsContentContainer = lyricsContentWrapper.parentElement;
-        const marginLeft = Number.parseInt(
-          window.getComputedStyle(lyricsContentWrapper).marginLeft,
-          10
-        );
-        const totalOffset = lyricsContentWrapper.offsetLeft + marginLeft;
-        return Math.round(
-          0.95 * (lyricsContentContainer.clientWidth - totalOffset)
-        );
-      }
-
-      waitForElement(
-        [".lyrics-lyrics-contentWrapper"],
-        ([lyricsContentWrapper]) => {
-          lyricsContentWrapper.style.maxWidth = "";
-          lyricsContentWrapper.style.width = "";
-
-          // 0, 1 - blank lines
-          const lyric = document.querySelector(
-            ".lyrics-lyricsContent-lyric"
-          )[2];
-          document.documentElement.style.setProperty(
-            "--lyrics-text-direction",
-            /[\u0591-\u07FF]/.test(lyric.innerText) ? "right" : "left"
-          );
-
-          document.documentElement.style.setProperty(
-            "--lyrics-active-max-width",
-            `${calculateLyricsMaxWidth(lyricsContentWrapper)}px`
-          );
-
-          // Lock lyrics wrapper width
-          const lyricsWrapperWidth =
-            lyricsContentWrapper.getBoundingClientRect().width;
-          lyricsContentWrapper.style.maxWidth = `${lyricsWrapperWidth}px`;
-          lyricsContentWrapper.style.width = `${lyricsWrapperWidth}px`;
-        }
-      );
+    const nativeLyrics = Spicetify.Platform.History.location.pathname === "/lyrics"
+      || document.querySelector('.Root__lyrics-cinema .lyrics-lyricsContent-provider');
+    if (!nativeLyrics) {
+      _lyricsObserver?.disconnect();
+      _lyricsObserver = null; _lyricsRoot = null;
+      cancelAnimationFrame(_lyricsFrame); _lyricsFrame = 0;
+      return;
     }
-
-    function lyricsCallback(mutationsList, lyricsObserver) {
-      for (const mutation of mutationsList)
-        for (addedNode of mutation.addedNodes)
-          if (addedNode.classList?.contains("lyrics-lyricsContent-provider"))
-            setLyricsPageProperties();
-      lyricsObserver.disconnect;
-    }
-
-    waitForElement(
-      [".lyrics-lyricsContent-provider"],
-      ([lyricsContentProvider]) => {
-        setLyricsPageProperties();
-        const lyricsObserver = new MutationObserver(lyricsCallback);
-        lyricsObserver.observe(lyricsContentProvider.parentElement, {
-          childList: true,
-        });
+    const root = document.querySelector('.Root__lyrics-cinema .lyrics-lyricsContent-provider')?.closest('.Root__lyrics-cinema')
+      || document.querySelector('.Root__main-view');
+    const measure = () => {
+      _lyricsFrame = 0;
+      const wrapper = root?.querySelector('.lyrics-lyrics-contentWrapper');
+      if (!wrapper?.parentElement) return;
+      wrapper.style.maxWidth = wrapper.style.width = '';
+      const margin = parseFloat(getComputedStyle(wrapper).marginLeft) || 0;
+      const width = Math.round(.95 * (wrapper.parentElement.clientWidth - wrapper.offsetLeft - margin));
+      const lyric = root.querySelectorAll('.lyrics-lyricsContent-lyric')[2];
+      const measured = wrapper.getBoundingClientRect().width;
+      document.documentElement.style.setProperty('--lyrics-text-direction', /[\u0591-\u07FF]/.test(lyric?.textContent || '') ? 'right' : 'left');
+      document.documentElement.style.setProperty('--lyrics-active-max-width', `${width}px`);
+      wrapper.style.maxWidth = wrapper.style.width = `${measured}px`;
+    };
+    const schedule = () => { if (!_lyricsFrame) _lyricsFrame = requestAnimationFrame(measure); };
+    if (_lyricsRoot !== root) {
+      _lyricsObserver?.disconnect();
+      _lyricsRoot = root;
+      if (root) {
+        _lyricsObserver = new MutationObserver(schedule);
+        _lyricsObserver.observe(root, { childList: true, subtree: true });
       }
-    );
+    }
+    schedule();
   }
 
   function setFadeDirection(scrollNode) {
@@ -819,87 +800,4 @@
   matchSettingsControl();
 })();
 
-    function setupLyricsRedirect() {
-        if (!Spicetify?.Platform?.History) {
-            setTimeout(setupLyricsRedirect, 300);
-            return;
-        }
-
-        // Spotify renders the now-playing lyrics button as disabled (isEnabled =
-        // track.hasLyrics) with no click handler when a track has no native lyrics.
-        // Force it to always look/act enabled so it can always open Lyrics Plus.
-        // Match by data-testid (tag-agnostic): recent Spotify renders the button via
-        // an encore primitive whose class changed (main-nowPlayingBar-lyricsButton ->
-        // main-genericButton-button) and which may not be a literal <button>, so the old
-        // button[...]/class selectors miss it. data-testid="lyrics-button" is stable.
-        const LYRICS_BTN_SEL = "[data-testid='lyrics-button'], .main-nowPlayingBar-lyricsButton";
-        const forceEnableStyle = () => {
-            if (document.getElementById("sr-force-lyrics-style")) return;
-            const style = document.createElement("style");
-            style.id = "sr-force-lyrics-style";
-            style.textContent = `
-                [data-testid="lyrics-button"],
-                [data-testid="lyrics-button"]:disabled,
-                [data-testid="lyrics-button"][disabled],
-                [data-testid="lyrics-button"][aria-disabled="true"],
-                .main-nowPlayingBar-lyricsButton,
-                .main-nowPlayingBar-lyricsButton:disabled {
-                    opacity: 1 !important;
-                    pointer-events: auto !important;
-                    cursor: pointer !important;
-                    visibility: visible !important;
-                }
-            `;
-            document.head.appendChild(style);
-        };
-
-        const redirectLyricsButton = () => {
-            document.querySelectorAll(LYRICS_BTN_SEL).forEach(btn => {
-                // Always strip the disabled state Spotify applies when no native lyrics exist
-                if (btn.disabled) btn.disabled = false;
-                btn.removeAttribute("disabled");
-                btn.removeAttribute("aria-disabled");
-                btn.style.opacity = "1";
-                btn.style.pointerEvents = "auto";
-                btn.style.cursor = "pointer";
-
-                if (btn.dataset.lyricsRedirected) return;
-                btn.dataset.lyricsRedirected = "true";
-                btn.addEventListener("click", (e) => {
-                    e.stopImmediatePropagation();
-                    e.preventDefault();
-                    if (Spicetify.Platform.History.location.pathname !== "/lyrics-plus") {
-                        Spicetify.Platform.History.push("/lyrics-plus");
-                    } else {
-                        Spicetify.Platform.History.goBack();
-                    }
-                }, true);
-            });
-        };
-
-        const hideNavLink = () => {
-            document.querySelectorAll(".main-globalNav-navLink").forEach(el => {
-                if (el.dataset.srHidden) return;
-                const svg = el.querySelector('path[d*="M13.426"]');
-                if (svg) {
-                    el.parentElement.style.display = "none";
-                    el.dataset.srHidden = "true";
-                }
-            });
-        };
-
-        forceEnableStyle();
-        redirectLyricsButton();
-        hideNavLink();
-        let _mutTimer = null;
-        new MutationObserver(() => {
-            if (_mutTimer) return;
-            _mutTimer = requestAnimationFrame(() => {
-                _mutTimer = null;
-                redirectLyricsButton();
-                hideNavLink();
-            });
-        }).observe(document.body, { childList: true, subtree: true });
-    }
-    setupLyricsRedirect();
 })();

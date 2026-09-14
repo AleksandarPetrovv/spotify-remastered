@@ -40,29 +40,36 @@ class Translator {
 	}
 
 	async createTranslator(lang) {
-		const langCode = lang.slice(0, 2);
-		switch (langCode) {
-			case "ja":
-				if (this.kuroshiro) return;
-				await this.waitForGlobals(['Kuroshiro', 'KuromojiAnalyzer'], 10000);
-				this.kuroshiro = new Kuroshiro.default();
-				await this.kuroshiro.init(new KuromojiAnalyzer({ dictPath }));
-				this.finished.ja = true;
-				break;
-			case "ko":
-				if (this.Aromanize) return;
-				await this.waitForGlobals(['Aromanize'], 5000);
-				this.Aromanize = Aromanize;
-				this.finished.ko = true;
-				break;
-			case "zh":
-				if (this.OpenCC) return;
-				await this.waitForGlobals(['OpenCC'], 5000);
-				this.OpenCC = OpenCC;
-				this.finished.zh = true;
-				break;
-		}
-	}
+        const langCode = lang.slice(0, 2);
+        if (this.finished[langCode]) return;
+        Translator._enginePromises ||= new Map();
+        if (!Translator._enginePromises.has(langCode)) {
+            const initialize = async () => {
+                switch (langCode) {
+                    case 'ja': {
+                        await this.waitForGlobals(['Kuroshiro', 'KuromojiAnalyzer'], 10000);
+                        const kuroshiro = new Kuroshiro.default();
+                        await kuroshiro.init(new KuromojiAnalyzer({ dictPath }));
+                        return { kuroshiro };
+                    }
+                    case 'ko':
+                        await this.waitForGlobals(['Aromanize'], 5000);
+                        return { Aromanize };
+                    case 'zh':
+                        await this.waitForGlobals(['OpenCC'], 5000);
+                        return { OpenCC };
+                    default: return {};
+                }
+            };
+            const promise = initialize().catch(error => {
+                Translator._enginePromises.delete(langCode);
+                throw error;
+            });
+            Translator._enginePromises.set(langCode, promise);
+        }
+        Object.assign(this, await Translator._enginePromises.get(langCode));
+        this.finished[langCode] = true;
+    }
 
 	async waitForGlobals(globalNames, timeoutMs = 5000) {
 		const startTime = Date.now();

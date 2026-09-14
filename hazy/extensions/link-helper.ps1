@@ -175,7 +175,8 @@ function Update-Link($job) {
                         try {
                             $entryUrl = if ($entry.id -match '^[A-Za-z0-9_-]{11}$' -and $info.extractor -notlike '*soundcloud*') { "https://www.youtube.com/watch?v=$($entry.id)" } elseif ($entry.webpage_url) { $entry.webpage_url } else { $entry.url }
                             $entryUrl = Get-LinkUrl $entryUrl $true
-                            $entries.Add(@{ url=$entryUrl; title=$entry.title; artist=$entry.uploader; cover=$entry.thumbnail; collection=($entryUrl -match '/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)') })
+                            $entryCover = if ($entry.thumbnail) { $entry.thumbnail } elseif ($entry.thumbnails) { $entry.thumbnails[-1].url } else { '' }
+                            $entries.Add(@{ url=$entryUrl; title=$entry.title; artist=$entry.uploader; cover=$entryCover; collection=($entryUrl -match '/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)') })
                         } catch {}
                     }
                 }

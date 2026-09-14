@@ -167,7 +167,7 @@ def worker(job):
                             continue
                         try:
                             url = 'https://www.youtube.com/watch?v=' + item['id'] if re.fullmatch(r'[A-Za-z0-9_-]{11}', item.get('id','')) and 'soundcloud' not in info.get('extractor','').lower() else item.get('webpage_url') or item.get('url','')
-                            entries.append({'url':validate(url,True),'title':item.get('title',''),'artist':item.get('uploader',''),'cover':item.get('thumbnail',''),'collection':bool(re.search(r'/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)',url))})
+                            entries.append({'url':validate(url,True),'title':item.get('title',''),'artist':item.get('uploader',''),'cover':item.get('thumbnail') or next((t['url'] for t in reversed(item.get('thumbnails') or []) if t.get('url')), ''),'collection':bool(re.search(r'/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)',url))})
                         except ValueError:
                             continue
                 if len(info.get('entries', [])) >= 2001:

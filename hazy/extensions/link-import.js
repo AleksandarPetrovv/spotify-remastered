@@ -323,7 +323,15 @@
                 const marker=element('span',entry.added?null:String(index+1),entry.added?'sr-bulk-check':null);
                 if(entry.added){marker.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M5 12l4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';marker.setAttribute('aria-label','Added to playlist');}
                 row.style.alignItems='center';
-                row.append(marker,fields);
+                const artwork=element('img',null,'sr-bulk-artwork');
+                let cover=entry.cover;
+                if(!cover){try{const url=new URL(entry.url);const id=url.hostname.endsWith('youtube.com')?url.searchParams.get('v'):url.hostname==='youtu.be'?url.pathname.slice(1):null;if(id && /^[A-Za-z0-9_-]{11}$/.test(id))cover='https://i.ytimg.com/vi/'+id+'/mqdefault.jpg';}catch{}}
+                artwork.alt='';artwork.loading='lazy';artwork.width=40;artwork.height=40;
+                artwork.style.cssText='width:40px;height:40px;object-fit:cover;border-radius:4px;flex-shrink:0';
+                artwork.onerror=()=>{artwork.style.visibility='hidden';};
+                if(cover){entry.cover=cover;artwork.src=cover;}else artwork.style.visibility='hidden';
+                if(entry.added)artwork.style.opacity='.5';
+                row.append(marker,artwork,fields);
                 bulkList.append(row);
             }
             bulkList.scrollTop=scroll;
@@ -356,6 +364,7 @@
                 for(let index=0;index<collection.entries.length && !cancelled;index++) {
                     const entry=collection.entries[index];
                     bulkProgress.name=entry.title || 'Song '+(index+1);
+                    bulkProgress.songCover=entry.cover || '';
                     bulkProgress.queued=collection.entries.slice(index+1,index+4).map(e=>e.title || 'Song');
                     status.textContent='Finding “'+bulkProgress.name+'”… · '+index+' of '+bulkProgress.total;
                     background?.update(bulkProgress);
@@ -376,7 +385,9 @@
                         const songArtist=String(entry.artistEdit !== undefined ? entry.artistEdit.trim() : detected.artist).slice(0,200);
                         if(!songTitle || !songArtist)throw new Error('Enter the song title and artist.');
                         bulkProgress.name=songTitle;bulkProgress.artist=songArtist;
-                        if(!bulkProgress.cover)bulkProgress.cover=job.cover;
+                        entry.cover=job.cover || entry.cover;
+                        bulkProgress.songCover=entry.cover || '';
+                        renderBulk();
                         status.textContent='Downloading “'+songTitle+'”… · '+index+' of '+bulkProgress.total;
                         background?.update(bulkProgress);
                         if(cancelled)break;

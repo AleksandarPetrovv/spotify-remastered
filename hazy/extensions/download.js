@@ -383,6 +383,11 @@
                 if (!progress || state.finished) return;
                 state.progress = progress;
                 state.collectionCovers = progress.cover || state.collectionCovers;
+                var songCover = progress.songCover || state.collectionCovers;
+                if (state.cover !== songCover) {
+                    state.cover = songCover;
+                    toastIcon(state.ui.icon, spinnerMarkup, songCover);
+                }
                 state.ui.status.textContent = progress.name;
                 state.ui.detail.textContent = progress.done + ' of ' + progress.total + ' processed · ' + Math.max(0, progress.total - progress.done - 1) + ' queued';
                 state.ui.current.textContent = progress.queued.length ? 'Queued: ' + progress.queued.join(' · ') : progress.artist || '';

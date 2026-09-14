@@ -6,6 +6,8 @@ import os
 import subprocess
 import tempfile
 import unittest
+import zipfile
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -30,6 +32,69 @@ class InstallRecovery(unittest.TestCase):
         self.theme.mkdir(parents=True)
         (self.cfg / 'config-xpui.ini').write_text('[Setting]\ncurrent_theme = Hazy\n[AdditionalOptions]\nextensions = \ncustom_apps = \n')
         self.module = load_module('install_recovery', 'install-state.py')
+
+    def restore_fixture(self, mac=False):
+        spotify=self.directory / 'Spotify'
+        apps=spotify / ('Contents/Resources/Apps' if mac else 'Apps')
+        apps.mkdir(parents=True)
+        (apps / 'xpui').mkdir()
+        (apps / 'xpui/custom.js').write_text('modified')
+        anchor='Contents/MacOS/Spotify' if mac else 'Spotify.exe'
+        binary=spotify / anchor
+        binary.parent.mkdir(parents=True,exist_ok=True)
+        binary.write_bytes(b'known app')
+        backup=self.cfg / 'Backup'
+        backup.mkdir()
+        with zipfile.ZipFile(backup / 'xpui.spa','w') as archive:
+            archive.writestr('index.html','original app')
+        relative_apps='Contents/Resources/Apps' if mac else 'Apps'
+        record={'spotify':str(spotify),'files':{anchor:{'before':self.module.digest(binary),'after':self.module.digest(binary)},(relative_apps+'/xpui.spa').replace('/','\\') if not mac else relative_apps+'/xpui.spa':{'before':'original','after':self.module.digest(backup / 'xpui.spa')}}}
+        (self.root / 'data').mkdir(parents=True)
+        (self.root / 'data/spotx-state.json').write_text(json.dumps(record))
+        (self.cfg / 'config-xpui.ini').write_text('[Setting]\nspotify_path = '+str(spotify)+'\n')
+        return apps,binary,backup
+
+    def test_version_mismatch_restores_verified_windows_backup(self):
+        apps,binary,backup=self.restore_fixture()
+        result=SimpleNamespace(returncode=1,stdout='Spotify version and backup version are mismatched.',stderr='')
+        with patch.object(self.module.subprocess,'run',return_value=result),patch.object(self.module,'check_restore'),patch.object(self.module.sys,'platform','win32'):
+            self.module.restore_spicetify(self.root,self.cfg,'spicetify')
+        self.assertEqual((apps / 'xpui.spa').read_bytes(),(backup / 'xpui.spa').read_bytes())
+        self.assertFalse((apps / 'xpui').exists())
+
+    def test_version_mismatch_refuses_newer_binary(self):
+        apps,binary,backup=self.restore_fixture()
+        binary.write_bytes(b'new version')
+        result=SimpleNamespace(returncode=1,stdout='Spotify version and backup version are mismatched.',stderr='')
+        with patch.object(self.module.subprocess,'run',return_value=result),patch.object(self.module,'check_restore'),patch.object(self.module.sys,'platform','win32'):
+            with self.assertRaisesRegex(RuntimeError,'updated beyond'):
+                self.module.restore_spicetify(self.root,self.cfg,'spicetify')
+        self.assertTrue((apps / 'xpui/custom.js').exists())
+
+    def test_version_mismatch_restores_verified_mac_backup(self):
+        apps,binary,backup=self.restore_fixture(mac=True)
+        result=SimpleNamespace(returncode=1,stdout='Spotify version and backup version are mismatched.',stderr='')
+        with patch.object(self.module.subprocess,'run',return_value=result),patch.object(self.module,'check_restore'),patch.object(self.module.sys,'platform','darwin'):
+            self.module.restore_spicetify(self.root,self.cfg,'spicetify')
+        self.assertTrue((apps / 'xpui.spa').is_file())
+
+    def test_version_mismatch_refuses_wrong_backup(self):
+        apps,binary,backup=self.restore_fixture()
+        with zipfile.ZipFile(backup / 'xpui.spa','w') as archive:
+            archive.writestr('index.html','different version')
+        result=SimpleNamespace(returncode=1,stdout='Spotify version and backup version are mismatched.',stderr='')
+        with patch.object(self.module.subprocess,'run',return_value=result),patch.object(self.module,'check_restore'),patch.object(self.module.sys,'platform','win32'):
+            with self.assertRaisesRegex(RuntimeError,'does not match'):
+                self.module.restore_spicetify(self.root,self.cfg,'spicetify')
+        self.assertTrue((apps / 'xpui/custom.js').exists())
+
+    def test_restore_permission_error_does_not_use_fallback(self):
+        apps,binary,backup=self.restore_fixture()
+        result=SimpleNamespace(returncode=1,stdout='',stderr='permission denied')
+        with patch.object(self.module.subprocess,'run',return_value=result):
+            with self.assertRaisesRegex(RuntimeError,'permission denied'):
+                self.module.restore_spicetify(self.root,self.cfg,'spicetify')
+        self.assertTrue((apps / 'xpui/custom.js').exists())
 
     def test_second_cycle_takes_exact_snapshot(self):
         (self.theme / 'old.css').write_text('old')

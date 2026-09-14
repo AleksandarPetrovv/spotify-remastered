@@ -44,7 +44,22 @@ $state = Get-Content -LiteralPath (Join-Path $root 'data\install-state.json') -R
 $spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
 Stop-SpotifyForRestore
 Write-Output 'SR_STAGE:4:Restoring Spotify and previous configuration'
-Invoke-Checked $spice restore -n
+try {
+    $restoreSource = [IO.File]::ReadAllText($stateTool)
+    if ($restoreSource.Contains('def restore_spicetify(')) {
+        Invoke-Checked $python $stateTool spicetify-restore $root $cfg $spice
+    } else {
+        $updatedStateTool = Join-Path $root 'cache\uninstall-install-state.py'
+        New-Item -ItemType Directory -Path (Split-Path $updatedStateTool) -Force | Out-Null
+        Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/hazy/extensions/install-state.py' -OutFile $updatedStateTool
+        if (-not ([IO.File]::ReadAllText($updatedStateTool).Contains('def restore_spicetify('))) { throw 'The updated recovery helper is not available yet. Recovery files were retained.' }
+        Invoke-Checked $python $updatedStateTool spicetify-restore $root $cfg $spice
+    }
+} catch {
+    Write-Host 'Restoration could not finish. Recovery files were retained. Repair Spotify and rerun uninstall.' -ForegroundColor Yellow
+    Write-Host $_.Exception.Message
+    exit 1
+}
 Stop-SpotifyForRestore
 Invoke-Checked $python $stateTool restore $root $cfg
 & (Join-Path $root 'scripts\repair-spicetify.ps1') -Restore

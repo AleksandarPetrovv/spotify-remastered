@@ -36,7 +36,20 @@ c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','sp
 PY
 )
 echo 'SR_STAGE:4:Restoring Spotify and previous configuration'
-"$spice" restore -n
+restore_state="$state"
+if ! grep -q 'def restore_spicetify(' "$state"; then
+    mkdir -p "$root/cache"
+    restore_state="$root/cache/uninstall-install-state.py"
+    curl -fL --retry 2 https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/hazy/extensions/install-state.py -o "$restore_state"
+fi
+if ! grep -q 'def restore_spicetify(' "$restore_state"; then
+    echo 'The updated recovery helper is not available yet. Recovery files were retained.' >&2
+    exit 1
+fi
+if ! "$python" "$restore_state" spicetify-restore "$root" "$cfg" "$spice"; then
+    echo 'Restoration could not finish. Recovery files were retained. Repair Spotify and rerun uninstall.' >&2
+    exit 1
+fi
 pkill -x Spotify 2>/dev/null || true
 "$python" "$state" restore "$root" "$cfg"
 "$python" "$root/scripts/repair-spicetify.py" --restore

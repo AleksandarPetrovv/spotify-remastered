@@ -10,6 +10,7 @@ import signal
 import subprocess
 import sys
 import uuid
+import zipfile
 from pathlib import Path
 
 
@@ -359,6 +360,69 @@ def spotx(root, spotify, action):
             state_path.unlink()
 
 
+def restore_spicetify(root, cfg, spice):
+    result = subprocess.run([spice, 'restore', '-n'], capture_output=True, text=True)
+    output = (result.stdout or '') + (result.stderr or '')
+    if result.returncode == 0:
+        print(output, end='')
+        return
+    if 'Spotify version and backup version are mismatched' not in output:
+        raise RuntimeError('Spicetify could not restore Spotify. Recovery files were retained. ' + output.strip())
+    check_restore(root, cfg)
+    config = configparser.RawConfigParser()
+    config.read(cfg / 'config-xpui.ini', encoding='utf-8-sig')
+    spotify = Path(os.path.expandvars(config.get('Setting', 'spotify_path'))).resolve()
+    if sys.platform == 'darwin' and spotify.name == 'Resources' and spotify.parent.name == 'Contents':
+        spotify = spotify.parent.parent
+    record = root / 'data/spotx-state.json'
+    if not record.is_file():
+        raise RuntimeError('Spotify backup is outdated and no verified app recovery record exists. Reinstall Spotify, then rerun uninstall. Recovery files were retained.')
+    patch = json.loads(record.read_text(encoding='utf-8-sig'))
+    if Path(patch['spotify']).resolve() != spotify:
+        raise RuntimeError('Spotify moved since installation. Recovery files were retained.')
+    files_record = {name.replace('\\','/'): info for name, info in patch['files'].items()}
+    anchor = 'Contents/MacOS/Spotify' if sys.platform == 'darwin' else 'Spotify.exe'
+    known = files_record.get(anchor)
+    binary = spotify / anchor
+    if not known or binary.is_symlink() or not binary.is_file() or digest(binary) not in (known['before'], known.get('after')):
+        raise RuntimeError('Spotify was updated beyond the saved recovery build. Reinstall Spotify, then rerun uninstall. Recovery files were retained; an old backup was not installed over the new app.')
+    relative_apps = 'Contents/Resources/Apps' if sys.platform == 'darwin' else 'Apps'
+    apps = spotify / relative_apps
+    backup = cfg / 'Backup'
+    xpui = backup / 'xpui.spa'
+    expected = files_record.get(relative_apps + '/xpui.spa')
+    if not expected or backup.is_symlink() or xpui.is_symlink() or not xpui.is_file() or digest(xpui) not in (expected['before'], expected.get('after')):
+        raise RuntimeError('The Spicetify backup does not match the verified recovery build. Reinstall Spotify, then rerun uninstall. Recovery files were retained.')
+    files = list(backup.glob('*.spa'))
+    if not files or any(file.is_symlink() or not zipfile.is_zipfile(file) for file in files):
+        raise RuntimeError('Spotify app backup is incomplete or damaged. Recovery files were retained.')
+    if apps.is_symlink() or not apps.resolve().is_relative_to(spotify):
+        raise RuntimeError('Invalid Spotify app directory. Recovery files were retained.')
+    staged = apps.parent / ('.spotify-remastered-restore-' + uuid.uuid4().hex)
+    old = apps.parent / ('.spotify-remastered-old-apps-' + uuid.uuid4().hex)
+    staged.mkdir()
+    moved = False
+    try:
+        for file in files:
+            shutil.copy2(file, staged / file.name)
+        if apps.exists():
+            apps.rename(old)
+            moved = True
+        try:
+            staged.rename(apps)
+        except BaseException:
+            if moved:
+                old.rename(apps)
+                moved = False
+            raise
+        if moved:
+            shutil.rmtree(old)
+        print('Spicetify version metadata differed; restored the verified matching app backup.')
+    finally:
+        if staged.exists():
+            shutil.rmtree(staged)
+
+
 def check_restore(root, cfg):
     state = json.loads((root / 'data/install-state.json').read_text(encoding='utf-8-sig'))
     if Path(state['config']).resolve() != cfg.resolve():
@@ -391,6 +455,12 @@ if __name__ == '__main__':
         capture(root, Path(sys.argv[3]).resolve(), sys.argv[4].lower() == 'true')
     elif action == 'check':
         check_restore(root, Path(sys.argv[3]).resolve())
+    elif action == 'spicetify-restore':
+        try:
+            restore_spicetify(root, Path(sys.argv[3]).resolve(), sys.argv[4])
+        except (RuntimeError, OSError, ValueError, configparser.Error) as error:
+            print(str(error), file=sys.stderr)
+            sys.exit(1)
     elif action == 'restore':
         restore(root, Path(sys.argv[3]).resolve())
     elif action == 'stop':

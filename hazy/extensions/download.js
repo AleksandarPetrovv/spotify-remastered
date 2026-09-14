@@ -31,7 +31,7 @@
         this.register = function() { Spicetify.ContextMenuV2.registerItem(element, options.shouldAdd); };
     }
 
-    function chooseFormat(start) {
+    function chooseFormat(start, plural = false) {
         const root=document.createElement('div');root.id='sr-file-format';
         root.innerHTML='<style>.spicetify-popup-container:has(#sr-file-format){width:420px!important;max-width:calc(100vw - 48px)!important}#sr-file-format{display:flex;flex-direction:column;gap:20px;color:var(--spice-text);font-size:14px}#sr-file-format p{margin:0;color:var(--spice-subtext)}.sr-format-options{display:flex;gap:8px;flex-wrap:wrap}#sr-file-format button{font:inherit;border-radius:8px;padding:9px 14px;border:1px solid rgba(255,255,255,.14);background:transparent;color:var(--spice-text);cursor:pointer}#sr-file-format button:hover{background:rgba(255,255,255,.08)}#sr-file-format button:focus-visible{outline:2px solid var(--spice-button);outline-offset:2px}#sr-file-format button[aria-checked=true]{background:rgba(255,255,255,.12);border-color:var(--spice-text)}.sr-format-actions{display:flex;gap:8px;justify-content:flex-end}#sr-file-format .sr-format-primary{background:var(--spice-button);color:var(--spice-main);border:0;font-weight:700}</style><p>Choose your audio format.</p>';
         const options=document.createElement('div');options.className='sr-format-options';options.setAttribute('role','radiogroup');options.setAttribute('aria-label','Audio format');
@@ -43,10 +43,23 @@
             options.append(button);
         }
         const actions=document.createElement('div');actions.className='sr-format-actions';
-        const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>Spicetify.PopupModal.hide();
-        const download=document.createElement('button');download.textContent='Download';download.className='sr-format-primary';download.onclick=()=>{Spicetify.PopupModal.hide();start(format);};
+        const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>close();
+        const download=document.createElement('button');download.textContent='Download';download.className='sr-format-primary';download.onclick=()=>close(()=>start(format));
         actions.append(cancel,download);root.append(options,actions);
-        Spicetify.PopupModal.display({title:'Download as file',content:root,isLarge:false});
+        Spicetify.PopupModal.display({title:plural?'Download as files':'Download as file',content:root,isLarge:false});
+        const overlay=root.closest('.GenericModal__overlay');
+        const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
+        overlay?.animate([{opacity:0},{opacity:1}],{duration:reduced?0:180,easing:'ease-out'});
+        let closing=false, press=null;
+        const observer=new MutationObserver(()=>{if(!root.isConnected)cleanup();});
+        function cleanup(){observer.disconnect();overlay?.removeEventListener('click',click,true);overlay?.removeEventListener('pointerdown',pointerdown,true);window.removeEventListener('keydown',keydown,true);window.removeEventListener('pointermove',pointermove,true);window.removeEventListener('pointercancel',resetPress);window.removeEventListener('blur',resetPress);}
+        async function close(next){if(closing)return;closing=true;cleanup();for(const button of root.querySelectorAll('button'))button.disabled=true;try{await overlay?.animate([{opacity:1},{opacity:0}],{duration:reduced?0:160,easing:'ease-in',fill:'forwards'}).finished;}catch{}if(root.isConnected)Spicetify.PopupModal.hide();if(next)next();}
+        function pointerdown(event){press=event.target===overlay && event.button===0?{id:event.pointerId,x:event.clientX,y:event.clientY,dragged:false}:null;}
+        function pointermove(event){if(press && event.pointerId===press.id && Math.hypot(event.clientX-press.x,event.clientY-press.y)>6)press.dragged=true;}
+        function resetPress(){press=null;}
+        function click(event){const outside=event.target===overlay;const dismiss=outside?press && !press.dragged && event.button===0:event.target.closest('.spicetify-popup-closeBtn');resetPress();if(outside || dismiss){event.preventDefault();event.stopImmediatePropagation();if(dismiss)close();}}
+        function keydown(event){if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
+        observer.observe(document.body,{childList:true,subtree:true});overlay?.addEventListener('click',click,true);overlay?.addEventListener('pointerdown',pointerdown,true);window.addEventListener('keydown',keydown,true);window.addEventListener('pointermove',pointermove,true);window.addEventListener('pointercancel',resetPress);window.addEventListener('blur',resetPress);
     }
 
     var noticeTimer;
@@ -427,7 +440,8 @@
 
     async function startSong(track, context, format = 'mp3') {
         var trackId = track.id;
-        var prior = activeDownloads.get(trackId);
+        var jobId = trackId + '-' + format;
+        var prior = activeDownloads.get(jobId);
         if (prior && pendingSong(prior)) { showNotif(); return; }
 
         var trackName = prior ? prior.name : "track";
@@ -459,8 +473,8 @@
                 trackName = r.data.trackUnion.name;
                 artistName = artistsForTrack(r.data.trackUnion) || artistName;
                 cover = coverFor(r.data.trackUnion) || cover;
-                var dl = activeDownloads.get(trackId);
-                if (dl) { dl.name = trackName; dl.artist = artistName; dl.cover = cover; updateNotif(); }
+                var dl = activeDownloads.get(jobId);
+                if (dl) { dl.name = trackName + ' (.' + format + ')'; dl.artist = artistName; dl.cover = cover; updateNotif(); }
             }
         }).catch(function() {});
 
@@ -478,12 +492,12 @@
             return;
         }
 
-        if (activeDownloads.has(trackId)) {
-            clearTimeout(activeDownloads.get(trackId).poll);
+        if (activeDownloads.has(jobId)) {
+            clearTimeout(activeDownloads.get(jobId).poll);
         }
 
-        var state = { name: trackName, artist: artistName, cover: cover, status: data.jobStatus === 'queued' ? 'queued' : 'downloading', poll: null, failures: 0, startedAt: data.jobStatus === 'queued' ? null : Date.now() };
-        activeDownloads.set(trackId, state);
+        var state = { format: format, name: trackName + ' (.' + format + ')', artist: artistName, cover: cover, status: data.jobStatus === 'queued' ? 'queued' : 'downloading', poll: null, failures: 0, startedAt: data.jobStatus === 'queued' ? null : Date.now() };
+        activeDownloads.set(jobId, state);
         showNotif();
 
         function finish(status, message) {
@@ -496,14 +510,14 @@
         }
         state.finish = finish;
         async function pollStatus() {
-            if (activeDownloads.get(trackId) !== state || !pendingSong(state)) return;
+            if (activeDownloads.get(jobId) !== state || !pendingSong(state)) return;
             if (state.startedAt !== null && Date.now() - state.startedAt >= 12 * 60 * 1000) {
-                helperRequest('cancel?id=' + encodeURIComponent(trackId), 8000).catch(function() {});
+                helperRequest('cancel?id=' + encodeURIComponent(jobId), 8000).catch(function() {});
                 finish('error', 'Download timed out. Please try again.');
                 return;
             }
             try {
-                var d = await helperRequest('status?id=' + encodeURIComponent(trackId), 8000);
+                var d = await helperRequest('status?id=' + encodeURIComponent(jobId), 8000);
                 if (!pendingSong(state)) return;
                 state.failures = 0;
                 if (d.status === "done") {
@@ -635,11 +649,11 @@
     }
 
     async function startCollection(collection, format = 'mp3') {
-        var jobId = collection.type === 'album' ? 'album-' + collection.id : collection.id;
+        var jobId = (collection.type === 'album' ? 'album-' + collection.id : collection.id) + '-' + format;
         var prior = collectionDownloads.get(jobId);
         if (prior && !prior.finished) return;
         if (prior && prior.ui) prior.remove();
-        var state = { id: jobId, type: collection.type, label: collection.type === 'album' ? 'Album' : 'Playlist', name: 'Collection download', poll: null, finished: false, cancelled: false, helperStarted: false, failed: [], omitted: 0, trackInfo: new Map() };
+        var state = { id: jobId, format: format, type: collection.type, label: collection.type === 'album' ? 'Album' : 'Playlist', name: 'Collection download', poll: null, finished: false, cancelled: false, helperStarted: false, failed: [], omitted: 0, trackInfo: new Map() };
         collectionDownloads.set(state.id, state);
         state.finish = function(message, error) {
             state.finished = true;
@@ -682,7 +696,7 @@
             var albumCover = '';
             if (!album) {
                 var meta = await withTimeout(Spicetify.Platform.PlaylistAPI.getMetadata(uri), 20000);
-                state.name = meta.name || 'Playlist';
+                state.name = (meta.name || 'Playlist') + ' (.' + format + ')';
                 state.collectionCovers = Array.from(new Set([pageCover].concat(coversFor(meta), [placeholder]).filter(Boolean)));
             }
             while (!state.cancelled) {
@@ -692,7 +706,7 @@
                         { uri: uri, locale: '', offset: offset, limit: 100 }), 20000);
                     var info = response && response.data && response.data.albumUnion;
                     if (!info || !info.name) throw new Error('Could not read the album.');
-                    state.name = info.name;
+                    state.name = info.name + ' (.' + format + ')';
                     albumCover = albumCover || coverFor(info);
                     state.collectionCovers = Array.from(new Set([pageCover].concat(coversFor(info), [placeholder]).filter(Boolean)));
                     var albumTracks = info.tracksV2 || info.tracks;
@@ -728,7 +742,7 @@
             }
             if (state.cancelled) { state.finish('Cancelled.'); return; }
             if (!tracks.length) { state.finish('No downloadable songs in this ' + state.type + '.', true); return; }
-            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks, format: format, folderToken: selection.token });
+            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name.slice(0,-(' (.' + format + ')').length), tracks: tracks, format: format, folderToken: selection.token });
             if (data.status === 'no_folder' || data.status === 'cancelled') { state.finish('Cancelled.'); return; }
             closeDownloadMenu();
             if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the download. Update the download helper and try again.');
@@ -787,12 +801,12 @@
     }
 
     new DownloadMenuItem({
-        children: 'Download as file',
+        children: 'Download as files',
         leadingIcon: 'download',
         shouldAdd: function(props) { return !!collectionForMenu(props); },
         onClick: function(context) {
             var playlist = collectionForMenu(context.props);
-            if (playlist) chooseFormat(format => startCollection(playlist, format));
+            if (playlist) chooseFormat(format => startCollection(playlist, format), true);
         }
     }).register();
 

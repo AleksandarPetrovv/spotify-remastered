@@ -174,23 +174,24 @@ function Update-Download($dl) {
 
 function Update-Singles {
     foreach ($dl in @($script:downloads.Values)) { Update-Download $dl }
-    if (@($script:downloads.Values | Where-Object { $_.Status -eq 'downloading' }).Count -gt 0) { return }
-    $next = $script:downloads.Values | Where-Object { $_.Status -eq 'queued' } | Sort-Object Order | Select-Object -First 1
-    if (-not $next) { return }
-    try {
-        $index = Read-DownloadIndex (Get-DownloadIndexPath $next.Folder $next.Tools.JobsDir $next.Format)
-        if ($index.ContainsKey($next.Id)) {
-            $file = Get-Item -LiteralPath (Join-Path $next.Folder $index[$next.Id]) -ErrorAction SilentlyContinue
-            if ($file -and -not $file.PSIsContainer -and $file.Length -gt 0 -and -not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
-                $next.Status = 'done'; $next.CompletedAt = [DateTime]::UtcNow
-                return
+    foreach ($format in @('mp3','wav','ogg','flac')) {
+        if (@($script:downloads.Values | Where-Object { $_.Status -eq 'downloading' -and $_.Format -eq $format }).Count -gt 0) { continue }
+        $next = $script:downloads.Values | Where-Object { $_.Status -eq 'queued' -and $(if ($_.Format) { $_.Format } else { 'mp3' }) -eq $format } | Sort-Object Order | Select-Object -First 1
+        if (-not $next) { continue }
+        $key = if ($next.Key) { $next.Key } else { $next.Id }
+        try {
+            $index = Read-DownloadIndex (Get-DownloadIndexPath $next.Folder $next.Tools.JobsDir $format)
+            if ($index.ContainsKey($next.Id)) {
+                $file = Get-Item -LiteralPath (Join-Path $next.Folder $index[$next.Id]) -ErrorAction SilentlyContinue
+                if ($file -and -not $file.PSIsContainer -and $file.Length -gt 0 -and -not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                    $next.Status = 'done'; $next.CompletedAt = [DateTime]::UtcNow
+                    continue
+                }
             }
+            $script:downloads[$key] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir $null $format
+        } catch {
+            $next.Status = 'error'; $next.Message = $_.Exception.Message; $next.CompletedAt = [DateTime]::UtcNow
         }
-        $script:downloads[$next.Id] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir $null $next.Format
-    } catch {
-        $next.Status = 'error'
-        $next.Message = $_.Exception.Message
-        $next.CompletedAt = [DateTime]::UtcNow
     }
 }
 
@@ -259,7 +260,7 @@ function Start-Playlist($body, $folder, $tools) {
     foreach ($track in $tracks) {
         if ($track.id -notmatch '^[a-zA-Z0-9]{22}$' -and ($track.id -notlike 'spotify:local:*' -or $track.id.Length -gt 4096)) { throw 'Invalid track ID in playlist.' }
     }
-    $destination = Join-Path $folder (Safe-Name $body.name)
+    $destination = Join-Path $folder ((Safe-Name $body.name) + ' (.' + $format + ')')
     New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
     $indexPath = Get-DownloadIndexPath $destination $tools.JobsDir $format
     $index = Read-DownloadIndex $indexPath
@@ -480,7 +481,9 @@ try { while ($listener.IsListening) {
                 $reader = New-Object System.IO.StreamReader($ctx.Request.InputStream, [System.Text.Encoding]::UTF8)
                 try { $body = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
                 if ($body.id -notmatch '^[a-zA-Z0-9]{22}$') { throw 'Invalid Spotify playlist ID.' }
-                $batchId = if ($body.kind -eq 'album') { 'album-' + $body.id } else { $body.id }
+                $format = if ($body.format) { [string]$body.format } else { 'mp3' }
+                if ($format -notin @('mp3','wav','ogg','flac')) { throw 'Invalid audio format.' }
+                $batchId = $(if ($body.kind -eq 'album') { 'album-' + $body.id } else { $body.id }) + '-' + $format
                 if ($script:playlists.ContainsKey($batchId) -and $script:playlists[$batchId].Status -eq 'downloading') {
                     Respond $ctx '{"status":"already_downloading"}'
                     break
@@ -518,7 +521,10 @@ try { while ($listener.IsListening) {
                 break
             }
 
-            if ($script:downloads.ContainsKey($trackId) -and $script:downloads[$trackId].Status -in @('downloading', 'queued')) {
+            $format = if ($ctx.Request.QueryString['format']) { $ctx.Request.QueryString['format'] } else { 'mp3' }
+            if ($format -notin @('mp3','wav','ogg','flac')) { Respond $ctx '{"status":"error","message":"Invalid audio format."}'; break }
+            $jobId = $trackId + '-' + $format
+            if ($script:downloads.ContainsKey($jobId) -and $script:downloads[$jobId].Status -in @('downloading', 'queued')) {
                 Respond $ctx '{"status":"already_downloading"}'
                 break
             }
@@ -530,11 +536,11 @@ try { while ($listener.IsListening) {
             if (-not $downloadFolder) { Respond $ctx '{"status":"no_folder"}'; break }
             $tools = Get-Downloader
             $script:singleOrder++
-            $script:downloads[$trackId] = @{ Id = $trackId; Folder = $downloadFolder; Tools = $tools; Order = $script:singleOrder;
+            $script:downloads[$jobId] = @{ Id = $trackId; Key = $jobId; Folder = $downloadFolder; Tools = $tools; Order = $script:singleOrder;
                 Format = $format; Status = 'queued'; Message = $null; CompletedAt = $null; Process = $null }
             Update-Singles
 
-            Respond $ctx (@{ status = 'started'; jobStatus = $script:downloads[$trackId].Status } | ConvertTo-Json -Compress)
+            Respond $ctx (@{ status = 'started'; jobStatus = $script:downloads[$jobId].Status } | ConvertTo-Json -Compress)
             } catch {
                 Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress)
             }

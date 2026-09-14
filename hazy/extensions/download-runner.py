@@ -25,7 +25,12 @@ if os.name == 'nt':
 
 def worker_root():
     root = Path(os.environ['LOCALAPPDATA']) / 'spotify-remastered' if os.name == 'nt' else Path.home() / '.local/share/spotify-remastered'
-    return root / 'cache/spotify-worker'
+    audio_format = os.environ.get('SR_WORKER_FORMAT','mp3')
+    if '--format' in sys.argv:
+        audio_format = sys.argv[sys.argv.index('--format')+1]
+    if audio_format not in ('mp3','wav','ogg','flac'):
+        raise ValueError('Invalid audio format.')
+    return root / ('cache/spotify-worker' + ('' if audio_format == 'mp3' else '-' + audio_format))
 
 
 def write_json(path, value):
@@ -67,7 +72,8 @@ def submit():
         lock = acquire_worker_lock(root)
         if lock is not None:
             lock.close()
-            subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--serve'], stdin=subprocess.DEVNULL,
+            audio_format = sys.argv[sys.argv.index('--format')+1] if '--format' in sys.argv else 'mp3'
+            subprocess.Popen([sys.executable, str(Path(__file__).resolve()), '--serve'], env={**os.environ,'SR_WORKER_FORMAT':audio_format}, stdin=subprocess.DEVNULL,
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
     ensure_worker()
     last_check = time.monotonic()

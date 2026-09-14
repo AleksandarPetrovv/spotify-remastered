@@ -1,3 +1,7 @@
+import ast
+import io
+import sys
+from types import SimpleNamespace
 import importlib.util
 import json
 import os
@@ -36,6 +40,43 @@ class DownloadSafety(unittest.TestCase):
             self.assertTrue((self.folder / ('song.'+audio_format)).is_file())
             self.run_worker([track], audio_format=audio_format)
         self.assertEqual(len(self.calls),4)
+
+    def test_parallel_requests_use_format_specific_jobs(self):
+        module=self.module
+        module.JOBS.mkdir()
+        calls=[]
+        def start(*args,**kwargs):
+            calls.append(args)
+            return SimpleNamespace(pid=123)
+        result=SimpleNamespace(returncode=0,stdout=str(self.folder))
+        with patch.object(module.subprocess,'run',return_value=result), patch.object(module.subprocess,'Popen',side_effect=start):
+            for audio_format in ('mp3','wav','ogg','flac'):
+                query='id='+('A'*22)+'&format='+audio_format
+                self.assertEqual(module.request('/download',query,0)['status'],'started')
+                self.assertEqual(module.request('/download',query,0)['status'],'already_downloading')
+            self.assertEqual(len(calls),4)
+            for audio_format in ('mp3','wav','ogg','flac'):
+                body=json.dumps({'id':'B'*22,'name':'album','kind':'album','format':audio_format,'tracks':[{'id':'A'*22,'name':'song'}]}).encode()
+                with patch.object(module.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(body))):
+                    self.assertEqual(module.request('/playlist','',len(body))['status'],'started')
+                self.assertTrue((self.folder / ('album (.'+audio_format+')')).is_dir())
+                with patch.object(module.sys,'stdin',SimpleNamespace(buffer=io.BytesIO(body))):
+                    self.assertEqual(module.request('/playlist','',len(body))['status'],'already_downloading')
+            self.assertEqual(len(calls),8)
+
+    def test_runner_roots_are_separate_for_each_format(self):
+        source=(REPO / 'hazy/extensions/download-runner.py').read_text(encoding='utf-8')
+        tree=ast.parse(source)
+        function=next(node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name=='worker_root')
+        namespace={'os':os,'sys':sys,'Path':Path}
+        exec(compile(ast.Module(body=[function],type_ignores=[]),'runner','exec'),namespace)
+        roots=[]
+        for audio_format in ('mp3','wav','ogg','flac'):
+            with patch.object(sys,'argv',['runner','--client','download','--format',audio_format]):
+                roots.append(namespace['worker_root']())
+        self.assertEqual(len(set(roots)),4)
+        with patch.object(sys,'argv',['runner','--serve']),patch.dict(os.environ,{'SR_WORKER_FORMAT':'flac'}):
+            self.assertEqual(namespace['worker_root'](),roots[-1])
 
     def run_worker(self, tracks, single=False, before_output=None, audio_format='mp3'):
         job = self.module.JOBS / ('job-' + str(len(list(self.module.JOBS.glob('*')))))

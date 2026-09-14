@@ -37,7 +37,7 @@ try {
     Update-Singles
     Assert ($script:downloads[$identifier].Status -eq 'done') 'repeat single download was not reused'
 
-    $playlistFolder = Join-Path $output 'playlist'
+    $playlistFolder = Join-Path $output 'playlist (.mp3)'
     New-Item -ItemType Directory -Path $playlistFolder | Out-Null
     [IO.File]::WriteAllText((Join-Path $playlistFolder 'song.mp3'), 'unrelated playlist audio')
     $body = @{ id = 'B' * 22; name = 'playlist'; tracks = @(@{ id = $identifier; name = 'song' }) }
@@ -65,6 +65,23 @@ try {
         $repeat = Start-Playlist $formatBody $output @{JobsDir=$logs}
         Assert ($repeat.Skipped -eq 1) 'repeat format download was not skipped'
     }
+    $script:testStarted = @()
+    function Start-Download($trackId,$folder,$spotdl,$ffmpeg,$jobsDir,$fileName,$format) {
+        $script:testStarted += $format
+        $process = [pscustomobject]@{HasExited=$false}
+        $process | Add-Member ScriptMethod Refresh {}
+        return @{Status='downloading';Format=$format;Process=$process;SharedWorker=$false;StartedAt=[DateTime]::UtcNow;TimeoutSeconds=600}
+    }
+    $script:downloads = @{}
+    $parallelId = 'Z' * 22
+    foreach($format in @('mp3','flac')) {
+        $key=$parallelId+'-'+$format
+        $script:downloads[$key]=@{Id=$parallelId;Key=$key;Folder=$output;Tools=@{JobsDir=$logs};Order=1;Status='queued';Format=$format}
+    }
+    Update-Singles
+    Assert ($script:testStarted.Count -eq 2) 'different formats did not start independently'
+    Update-Singles
+    Assert ($script:testStarted.Count -eq 2) 'active same-format jobs were started again'
     Write-Output 'windows download safety: existing safety and four format scenarios passed'
 } finally {
     if ([IO.Path]::GetFullPath($testRoot) -ne $expectedRoot -or -not $testRoot.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase)) { throw 'invalid test cleanup path' }

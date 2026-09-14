@@ -318,12 +318,17 @@ def request(route, query, length):
         playlist_id = body.get('id', '')
         if body.get('kind') == 'album':
             playlist_id = 'album-' + playlist_id
+    audio_format=body.get('format','mp3') if body else parameters.get('format',['mp3'])[0]
+    if body is None and re.fullmatch(r'(?:album-)?[a-zA-Z0-9]{22}-(?:mp3|wav|ogg|flac)',playlist_id):
+        playlist_id,audio_format=playlist_id.rsplit('-',1)
+    if audio_format not in ('mp3','wav','ogg','flac'):
+        raise ValueError('Invalid audio format.')
     if not re.fullmatch(r'(?:album-)?[a-zA-Z0-9]{22}', playlist_id):
         raise ValueError('Invalid Spotify playlist ID.')
     if single:
         playlist_id = 'single-' + playlist_id
     JOBS.mkdir(parents=True, exist_ok=True)
-    pointer = JOBS / (playlist_id + '.json')
+    pointer = JOBS / (playlist_id + '-' + audio_format + '.json')
     job = Path(json.loads(pointer.read_text())['job']) if pointer.exists() else None
     state = json.loads((job / 'status.json').read_text()) if job and (job / 'status.json').exists() else {'status': 'idle'}
     if route == '/open-folder':
@@ -376,7 +381,7 @@ def request(route, query, length):
         if result.returncode != 0 or not result.stdout.strip():
             return {'status': 'no_folder'}
         selected = result.stdout.strip()
-    folder = Path(selected) if single else Path(selected) / safe_name(body.get('name', 'Playlist'))
+    folder = Path(selected) if single else Path(selected) / (safe_name(body.get('name', 'Playlist')) + ' (.' + audio_format + ')')
     folder.mkdir(exist_ok=True)
     job = JOBS / uuid.uuid4().hex
     job.mkdir()

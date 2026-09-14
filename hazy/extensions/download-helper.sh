@@ -31,6 +31,18 @@ respond() {
 }
 
 case "$route" in
+    /open-folder)
+        if [[ ! "$trackId" =~ ^[a-zA-Z0-9]{22}$ ]]; then
+            respond '{"status":"error","message":"Invalid Spotify track ID."}'
+            exit 0
+        fi
+        folder=$(cat "/tmp/spotdl-folder-${trackId}.txt" 2>/dev/null)
+        if [ -d "$folder" ] && open "$folder"; then
+            respond '{"status":"opened"}'
+        else
+            respond '{"status":"error","message":"The download folder is no longer available."}'
+        fi
+        ;;
     /download)
         if [[ ! "$trackId" =~ ^[a-zA-Z0-9]{22}$ ]]; then
             respond '{"status":"error"}'
@@ -51,6 +63,7 @@ case "$route" in
             respond '{"status":"no_folder"}'
             exit 0
         fi
+        printf '%s' "$downloadFolder" > "/tmp/spotdl-folder-${trackId}.txt"
 
         SPOTDL="$HOME/.local/share/spotify-remastered/spotdl"
         FFMPEG="$HOME/.spotdl/ffmpeg"

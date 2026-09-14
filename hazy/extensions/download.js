@@ -129,9 +129,16 @@
         document.head.appendChild(s);
     }
 
+    function pendingSong(dl) { return dl.status === 'downloading' || dl.status === 'queued'; }
+
+    function exitToast(element, remove) {
+        element.animate([{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: 'translateX(40px)' }],
+            { duration: 260, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }).finished.then(remove, remove);
+    }
+
     function getActiveCount() {
         var c = 0;
-        activeDownloads.forEach(function(dl) { if (dl.status === "downloading") c++; });
+        activeDownloads.forEach(function(dl) { if (pendingSong(dl)) c++; });
         return c;
     }
 
@@ -139,171 +146,6 @@
         var last = null;
         activeDownloads.forEach(function(dl, id) { if (dl.status === "downloading") last = id; });
         return last;
-    }
-
-    function updateNotif() {
-        if (!notifEl) return;
-        var count = getActiveCount();
-        var textEl = notifEl.querySelector("#spotdl-notif-text");
-        var iconWrap = notifEl.querySelector("#spotdl-notif-icon");
-        if (!textEl || !iconWrap) return;
-
-        if (count === 0) {
-            var failed = 0;
-            activeDownloads.forEach(function(dl) { if (dl.status === 'error') failed++; });
-            if (failed) {
-                iconWrap.textContent = '!';
-                textEl.textContent = failed === 1 ? 'Download failed' : failed + ' downloads failed';
-                if (notifTimeout) clearTimeout(notifTimeout);
-                notifTimeout = setTimeout(removeNotif, 4000);
-                return;
-            }
-            iconWrap.innerHTML = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none">'
-                + '<circle cx="12" cy="12" r="10" stroke="rgba(255,255,255,0.15)" stroke-width="2"/>'
-                + '<circle cx="12" cy="12" r="10" stroke="#1DB954" stroke-width="2" stroke-dasharray="63" stroke-dashoffset="63" style="animation:spotdl-circle 0.4s ease forwards"/>'
-                + '<path d="M7.5 12.5L10.5 15.5L16.5 9.5" stroke="#1DB954" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="20" stroke-dashoffset="20" style="animation:spotdl-check 0.3s ease 0.25s forwards"/>'
-                + '</svg>';
-            textEl.textContent = activeDownloads.size > 1 ? "All downloads complete!" : "Downloaded!";
-            notifEl.style.justifyContent = "center";
-            if (notifTimeout) clearTimeout(notifTimeout);
-            notifTimeout = setTimeout(function() { removeNotif(); }, 2500);
-            return;
-        }
-
-        if (notifTimeout) { clearTimeout(notifTimeout); notifTimeout = null; }
-        notifEl.style.justifyContent = "flex-start";
-
-        iconWrap.innerHTML = '<div style="position:relative;width:22px;height:22px">'
-            + '<div style="position:absolute;inset:0;border-radius:50%;border:2px solid rgba(255,255,255,0.1)"></div>'
-            + '<div style="position:absolute;inset:0;border:2px solid transparent;border-top-color:#fff;border-radius:50%;animation:spotdl-spin 0.75s linear infinite"></div>'
-            + '</div>';
-
-        if (count === 1) {
-            var tid = getLastActiveTrackId();
-            textEl.textContent = "Downloading \"" + truncate(getTrackName(tid), 25) + "\"";
-        } else {
-            textEl.textContent = "Downloading " + count + " songs…";
-        }
-    }
-
-    function showNotif() {
-        injectNotifStyles();
-        if (notifEl) { updateNotif(); return; }
-        notifEl = document.createElement("div");
-        notifEl.id = "spotdl-notif";
-        notifEl.style.cssText = "position:fixed;bottom:100px;right:8px;z-index:9999;display:flex;align-items:center;gap:12px;padding:14px 22px;border-radius:12px;background:rgba(18,18,18,0.92);border:1px solid rgba(255,255,255,0.08);box-shadow:0 4px 24px rgba(0,0,0,0.5);backdrop-filter:blur(16px);color:#fff;font-size:14px;font-weight:500;min-width:220px;max-width:340px;animation:spotdl-notif-in 0.3s cubic-bezier(0.22,1,0.36,1) forwards;pointer-events:none";
-        var iconWrap = document.createElement("div");
-        iconWrap.id = "spotdl-notif-icon";
-        iconWrap.style.cssText = "flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px";
-        var textEl = document.createElement("span");
-        textEl.id = "spotdl-notif-text";
-        textEl.style.cssText = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis";
-        notifEl.appendChild(iconWrap);
-        notifEl.appendChild(textEl);
-        document.body.appendChild(notifEl);
-        updateNotif();
-    }
-
-    function removeNotif() {
-        if (!notifEl) return;
-        notifEl.style.animation = "spotdl-notif-out 0.3s ease forwards";
-        var el = notifEl;
-        notifEl = null;
-        notifTimeout = null;
-        setTimeout(function() { el.remove(); }, 300);
-    }
-
-    var menuItem = new Spicetify.ContextMenuV2.Item({
-        children: "Download",
-        leadingIcon: "download",
-        onClick: async function(context) {
-            var track = trackForMenu(context.props, context.target);
-            if (!track) {
-                Spicetify.showNotification('Could not identify the song to download.', true);
-                return;
-            }
-            var trackId = track.id;
-            var prior = activeDownloads.get(trackId);
-            if (prior && prior.status === 'downloading') { showNotif(); return; }
-
-            var trackName = "track";
-            var current = Spicetify.Player.data && Spicetify.Player.data.item;
-            if (current && current.uri === 'spotify:track:' + trackId) trackName = current.name || trackName;
-            // metadata lookup must not block the folder picker.
-            Promise.resolve().then(function() {
-                return Spicetify.GraphQL.Request(
-                    Spicetify.GraphQL.Definitions.getTrack,
-                    { uri: "spotify:track:" + trackId }
-                );
-            }).then(function(r) {
-                if (r && r.data && r.data.trackUnion && r.data.trackUnion.name) {
-                    trackName = r.data.trackUnion.name;
-                    var dl = activeDownloads.get(trackId);
-                    if (dl) { dl.name = trackName; updateNotif(); }
-                }
-            }).catch(function() {});
-
-            var data;
-            try {
-                data = await helperRequest('download?id=' + encodeURIComponent(trackId), 180000);
-            } catch (e) {
-                Spicetify.showNotification('Could not reach the download helper. Please try again.', true);
-                return;
-            }
-            if (data.status === 'no_folder' || data.status === 'cancelled') return;
-            if (data.status !== "started" && data.status !== 'already_downloading') {
-                Spicetify.showNotification(data.message || 'Could not start the download.', true);
-                return;
-            }
-
-            if (activeDownloads.has(trackId)) {
-                clearTimeout(activeDownloads.get(trackId).poll);
-            }
-
-            var state = { name: trackName, status: "downloading", poll: null, failures: 0, startedAt: Date.now() };
-            activeDownloads.set(trackId, state);
-            showNotif();
-
-            function finish(status, message) {
-                state.status = status;
-                clearTimeout(state.poll);
-                if (message) Spicetify.showNotification(message, status === 'error');
-                updateNotif();
-                setTimeout(function() {
-                    if (activeDownloads.get(trackId) === state) activeDownloads.delete(trackId);
-                }, 5000);
-            }
-            async function pollStatus() {
-                if (activeDownloads.get(trackId) !== state || state.status !== 'downloading') return;
-                if (Date.now() - state.startedAt >= 12 * 60 * 1000) {
-                    helperRequest('cancel?id=' + encodeURIComponent(trackId), 8000).catch(function() {});
-                    finish('error', 'Download timed out. Please try again.');
-                    return;
-                }
-                try {
-                    var d = await helperRequest('status?id=' + encodeURIComponent(trackId), 8000);
-                    state.failures = 0;
-                    if (d.status === "done") {
-                        finish('done'); return;
-                    }
-                    if (d.status !== 'downloading') {
-                        finish('error', d.message || 'The download failed or was cancelled. Please try again.'); return;
-                    }
-                } catch (e) {
-                    if (++state.failures >= 3) {
-                        finish('error', 'Lost connection to the download helper. Please try again.'); return;
-                    }
-                }
-                state.poll = setTimeout(pollStatus, 2000);
-            }
-            state.poll = setTimeout(pollStatus, 2000);
-        },
-        shouldAdd: function(props, trigger, target) { return !!trackForMenu(props, target); }
-    });
-
-    function exitToast(element, remove) {
-        element.animate([{ opacity: 1, transform: 'translateX(0)' }, { opacity: 0, transform: 'translateX(40px)' }],
-            { duration: 260, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' }).finished.then(remove, remove);
     }
 
     function arrangeNotifs() {
@@ -333,6 +175,107 @@
         } catch (e) { Spicetify.showNotification(e.message || 'Could not open the download folder.', true); }
     }
 
+    function updateNotif() {
+        if (!notifEl) return;
+        var ui = notifEl.ui;
+        var count = getActiveCount();
+        var saved = 0, failed = 0, cancelled = 0, last = null, latest = null, doneId = null;
+        activeDownloads.forEach(function(dl, id) {
+            latest = dl;
+            if (dl.status === 'done') { saved++; doneId = id; }
+            if (dl.status === 'error') failed++;
+            if (dl.status === 'cancelled') cancelled++;
+            if (dl.status === 'downloading' && !last) last = dl;
+        });
+        if (!last) activeDownloads.forEach(function(dl) { if (!last && dl.status === 'queued') last = dl; });
+        ui.open.hidden = count > 0 || !saved;
+        ui.actions.hidden = ui.open.hidden;
+        ui.open.onclick = function() { openFolder(doneId, 'track'); };
+        ui.cancel.setAttribute('aria-label', count ? 'Cancel song downloads' : 'Dismiss song download');
+        ui.cancel.title = count ? 'Cancel download' : 'Dismiss';
+        var phase = count ? 'downloading' : failed ? 'error' : saved ? 'done' : 'cancelled';
+        var cover = (last || latest) && (last || latest).cover;
+        if (ui.phase !== phase || ui.cover !== cover) {
+            toastIcon(ui.icon, count ? spinnerMarkup : phase === 'done' ? successMarkup : '<span style="font-size:22px">' + (failed ? '!' : '\u00d7') + '</span>', cover);
+            ui.cover = cover;
+            ui.phase = phase;
+        }
+        if (count) {
+            if (notifTimeout) { clearTimeout(notifTimeout); notifTimeout = null; }
+            ui.summary.textContent = 'Downloading ' + count + ' songs';
+            ui.summary.hidden = count <= 1;
+            ui.text.textContent = last.name;
+            ui.text.title = count === 1 ? last.name : '';
+            ui.detail.textContent = last.artist;
+            ui.detail.hidden = !ui.detail.textContent;
+            ui.detail.title = last.name + (last.artist ? ' — ' + last.artist : '');
+        } else {
+            ui.summary.hidden = true;
+            ui.detail.hidden = false;
+            ui.text.textContent = failed ? saved ? 'Downloaded with errors' : 'Download failed' : saved ? 'Downloaded!' : 'Download cancelled';
+            ui.detail.textContent = (failed ? failed + ' failed' : '') + (cancelled ? (failed ? ' · ' : '') + cancelled + ' cancelled' : '');
+            ui.detail.hidden = !ui.detail.textContent;
+            ui.detail.title = Array.from(activeDownloads.values()).filter(function(dl) { return dl.status === 'error'; }).map(function(dl) { return dl.name + ': ' + (dl.message || 'Download failed'); }).join('\n');
+            if (!notifTimeout) notifTimeout = dismissTimer(removeNotif, 5000);
+        }
+        arrangeNotifs();
+    }
+
+    function showNotif() {
+        injectNotifStyles();
+        if (notifEl) { updateNotif(); return; }
+        notifEl = document.createElement('div');
+        notifEl.id = 'spotdl-notif';
+        notifEl.className = 'spotdl-toast';
+        notifEl.style.cssText = toastStyle + ';pointer-events:auto';
+        var icon = document.createElement('div');
+        icon.style.cssText = 'flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px';
+        var copy = document.createElement('div');
+        copy.style.cssText = 'min-width:0;flex:0 1 auto';
+        var text = document.createElement('div');
+        var summary = document.createElement('div');
+        summary.style.cssText = 'font-size:12px;color:#ccc;line-height:18px;margin-bottom:3px';
+        summary.hidden = true;
+        text.id = 'spotdl-notif-text';
+        text.setAttribute('role', 'status');
+        text.style.cssText = 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;line-height:20px';
+        var detail = document.createElement('div');
+        detail.className = 'spotdl-detail';
+        detail.style.cssText = 'font-size:14px;margin-top:2px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+        var actions = document.createElement('div');
+        actions.className = 'spotdl-actions';
+        var open = actionButton('Open folder', function() {});
+        actions.append(open);
+        copy.append(summary, text, detail, actions);
+        var cancel = actionButton('\u00d7', async function() {
+            if (!getActiveCount()) { removeNotif(); return; }
+            var jobs = [];
+            activeDownloads.forEach(function(dl, id) { if (pendingSong(dl)) jobs.push({ id: id, dl: dl }); });
+            await Promise.all(jobs.map(async function(job) {
+                try {
+                    var result = await helperRequest('cancel?id=' + encodeURIComponent(job.id), 8000);
+                    if (result.status !== 'cancelled') throw new Error('Could not cancel the download.');
+                    if (activeDownloads.get(job.id) === job.dl) job.dl.finish('cancelled');
+                } catch (e) { Spicetify.showNotification('Could not cancel the download. Try again.', true); }
+            }));
+        });
+        notifEl.append(icon, copy, cancel);
+        notifEl.ui = { icon: icon, text: text, detail: detail, cancel: cancel, open: open, actions: actions, summary: summary };
+        document.body.appendChild(notifEl);
+        updateNotif();
+    }
+
+    function removeNotif() {
+        if (!notifEl) return;
+        clearTimeout(notifTimeout);
+        var el = notifEl;
+        notifEl = null;
+        notifTimeout = null;
+        activeDownloads.forEach(function(dl, id) { if (!pendingSong(dl)) activeDownloads.delete(id); });
+        arrangeNotifs();
+        exitToast(el, function() { el.remove(); });
+    }
+
     function artistsForTrack(track) {
         function items(value) { return Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : []; }
         var artists = [].concat(items(track.artists), items(track.firstArtist), items(track.otherArtists));
@@ -342,6 +285,118 @@
         }
         return Array.from(new Set(names)).join(', ');
     }
+
+    async function startSong(track, context) {
+        var trackId = track.id;
+        var prior = activeDownloads.get(trackId);
+        if (prior && pendingSong(prior)) { showNotif(); return; }
+
+        var trackName = prior ? prior.name : "track";
+        var artistName = prior ? prior.artist : "";
+        var cover = prior ? prior.cover : "";
+        if (context) {
+            var item = context.props && context.props.item;
+            if (item) { trackName = item.name || trackName; artistName = artistsForTrack(item) || artistName; cover = coverFor(item) || cover; }
+            var row = context.target && context.target.closest && context.target.closest('[data-testid="tracklist-row"], .main-nowPlayingWidget-nowPlaying');
+            if (row) {
+                var artistLinks = Array.from(row.querySelectorAll('a[href*="/artist/"]')).map(function(link) { return link.textContent.trim(); }).filter(Boolean);
+                if (artistLinks.length) artistName = Array.from(new Set(artistLinks)).join(', ');
+            }
+        }
+        var current = Spicetify.Player.data && Spicetify.Player.data.item;
+        if (current && current.uri === 'spotify:track:' + trackId) {
+            trackName = current.name || trackName;
+            artistName = artistsForTrack(current);
+            cover = coverFor(current);
+        }
+        // metadata lookup must not block the folder picker.
+        Promise.resolve().then(function() {
+            return Spicetify.GraphQL.Request(
+                Spicetify.GraphQL.Definitions.getTrack,
+                { uri: "spotify:track:" + trackId }
+            );
+        }).then(function(r) {
+            if (r && r.data && r.data.trackUnion && r.data.trackUnion.name) {
+                trackName = r.data.trackUnion.name;
+                artistName = artistsForTrack(r.data.trackUnion) || artistName;
+                cover = coverFor(r.data.trackUnion) || cover;
+                var dl = activeDownloads.get(trackId);
+                if (dl) { dl.name = trackName; dl.artist = artistName; dl.cover = cover; updateNotif(); }
+            }
+        }).catch(function() {});
+
+        var data;
+        try {
+            data = await helperRequest('download?id=' + encodeURIComponent(trackId), 180000);
+        } catch (e) {
+            Spicetify.showNotification('Could not reach the download helper. Please try again.', true);
+            return;
+        }
+        if (data.status === 'no_folder' || data.status === 'cancelled') return;
+        if (data.status !== "started" && data.status !== 'already_downloading') {
+            Spicetify.showNotification(data.message || 'Could not start the download.', true);
+            return;
+        }
+
+        if (activeDownloads.has(trackId)) {
+            clearTimeout(activeDownloads.get(trackId).poll);
+        }
+
+        var state = { name: trackName, artist: artistName, cover: cover, status: data.jobStatus === 'queued' ? 'queued' : 'downloading', poll: null, failures: 0, startedAt: data.jobStatus === 'queued' ? null : Date.now() };
+        activeDownloads.set(trackId, state);
+        showNotif();
+
+        function finish(status, message) {
+            if (!pendingSong(state)) return;
+            state.status = status;
+            state.message = message;
+            clearTimeout(state.poll);
+            if (message) Spicetify.showNotification(message, status === 'error');
+            updateNotif();
+        }
+        state.finish = finish;
+        async function pollStatus() {
+            if (activeDownloads.get(trackId) !== state || !pendingSong(state)) return;
+            if (state.startedAt !== null && Date.now() - state.startedAt >= 12 * 60 * 1000) {
+                helperRequest('cancel?id=' + encodeURIComponent(trackId), 8000).catch(function() {});
+                finish('error', 'Download timed out. Please try again.');
+                return;
+            }
+            try {
+                var d = await helperRequest('status?id=' + encodeURIComponent(trackId), 8000);
+                if (!pendingSong(state)) return;
+                state.failures = 0;
+                if (d.status === "done") {
+                    finish('done'); return;
+                }
+                if (d.status === 'cancelled') { finish('cancelled'); return; }
+                if (d.status !== 'downloading' && d.status !== 'queued') {
+                    finish('error', d.message || 'The download failed or was cancelled. Please try again.'); return;
+                }
+                state.status = d.status;
+                if (d.status === 'downloading' && state.startedAt === null) state.startedAt = Date.now();
+            } catch (e) {
+                if (++state.failures >= 3) {
+                    finish('error', 'Lost connection to the download helper. Please try again.'); return;
+                }
+            }
+            updateNotif();
+            state.poll = setTimeout(pollStatus, 1000);
+        }
+        state.poll = setTimeout(pollStatus, 1000);
+    }
+
+
+    var menuItem = new Spicetify.ContextMenuV2.Item({
+        children: 'Download',
+        leadingIcon: 'download',
+        onClick: function(context) {
+            var track = trackForMenu(context.props, context.target);
+            if (track) startSong(track, context);
+            else Spicetify.showNotification('Could not identify the song to download.', true);
+        },
+        shouldAdd: function(props, trigger, target) { return !!trackForMenu(props, target); }
+    });
 
     var collectionDownloads = new Map();
 

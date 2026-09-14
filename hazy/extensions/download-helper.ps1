@@ -11,6 +11,7 @@ public class WinHelper {
 
 $script:downloads = @{}
 $script:playlists = @{}
+$script:singleOrder = 0
 
 function Stop-Download($dl) {
     if ($dl.Process -and -not $dl.Process.HasExited) {
@@ -64,6 +65,20 @@ function Update-Download($dl) {
         $dl.Message = 'Download timed out after 10 minutes. Please try again.'
     }
     if ($dl.Status -ne 'downloading') { $dl.CompletedAt = [DateTime]::UtcNow }
+}
+
+function Update-Singles {
+    foreach ($dl in @($script:downloads.Values)) { Update-Download $dl }
+    if (@($script:downloads.Values | Where-Object { $_.Status -eq 'downloading' }).Count -gt 0) { return }
+    $next = $script:downloads.Values | Where-Object { $_.Status -eq 'queued' } | Sort-Object Order | Select-Object -First 1
+    if (-not $next) { return }
+    try {
+        $script:downloads[$next.Id] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir
+    } catch {
+        $next.Status = 'error'
+        $next.Message = $_.Exception.Message
+        $next.CompletedAt = [DateTime]::UtcNow
+    }
 }
 
 function Safe-Name($name) {
@@ -222,7 +237,7 @@ function Respond($ctx, $body) {
 try { while ($listener.IsListening) {
     $pending = $listener.BeginGetContext($null, $null)
     while (-not $pending.AsyncWaitHandle.WaitOne(1000)) {
-        foreach ($dl in @($script:downloads.Values)) { Update-Download $dl }
+        Update-Singles
         foreach ($batch in @($script:playlists.Values)) { Update-Playlist $batch }
     }
     $ctx = $listener.EndGetContext($pending)
@@ -234,6 +249,7 @@ try { while ($listener.IsListening) {
             $script:downloads.Remove($id)
         }
     }
+    Update-Singles
     foreach ($id in @($script:playlists.Keys)) {
         $batch = $script:playlists[$id]
         Update-Playlist $batch
@@ -298,7 +314,7 @@ try { while ($listener.IsListening) {
                 break
             }
 
-            if ($script:downloads.ContainsKey($trackId) -and $script:downloads[$trackId].Status -eq "downloading") {
+            if ($script:downloads.ContainsKey($trackId) -and $script:downloads[$trackId].Status -in @('downloading', 'queued')) {
                 Respond $ctx '{"status":"already_downloading"}'
                 break
             }
@@ -307,15 +323,19 @@ try { while ($listener.IsListening) {
             $downloadFolder = Select-DownloadFolder
             if (-not $downloadFolder) { Respond $ctx '{"status":"no_folder"}'; break }
             $tools = Get-Downloader
-            $script:downloads[$trackId] = Start-Download $trackId $downloadFolder $tools.Spotdl $tools.FFmpeg $tools.JobsDir
+            $script:singleOrder++
+            $script:downloads[$trackId] = @{ Id = $trackId; Folder = $downloadFolder; Tools = $tools; Order = $script:singleOrder;
+                Status = 'queued'; Message = $null; CompletedAt = $null; Process = $null }
+            Update-Singles
 
-            Respond $ctx '{"status":"started"}'
+            Respond $ctx (@{ status = 'started'; jobStatus = $script:downloads[$trackId].Status } | ConvertTo-Json -Compress)
             } catch {
                 Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress)
             }
         }
 
         "/status" {
+            Update-Singles
             $trackId = $ctx.Request.QueryString["id"]
             if ($trackId -and $script:downloads.ContainsKey($trackId)) {
                 $dl = $script:downloads[$trackId]
@@ -331,7 +351,8 @@ try { while ($listener.IsListening) {
             if ($trackId -and $script:downloads.ContainsKey($trackId)) {
                 $dl = $script:downloads[$trackId]
                 Stop-Download $dl
-                $script:downloads.Remove($trackId)
+                $dl.Status = 'cancelled'
+                $dl.CompletedAt = [DateTime]::UtcNow
             }
             Respond $ctx '{"status":"cancelled"}'
         }

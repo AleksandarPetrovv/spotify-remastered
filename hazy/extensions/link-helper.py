@@ -89,17 +89,29 @@ def write(job, state):
     temp.replace(job / 'status.json')
 
 
-def validate(value):
+def validate(value, collection=False):
     url = urlparse(value)
     if url.scheme != 'https' or url.username or url.password or url.port not in (None, 443):
         raise ValueError('Paste a valid HTTPS song link.')
     if url.hostname in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'):
+        playlist = parse_qs(url.query).get('list', [''])[0]
+        if collection and re.fullmatch(r'[A-Za-z0-9_-]{1,200}', playlist):
+            video = url.path.strip('/') if url.hostname == 'youtu.be' else parse_qs(url.query).get('v', [''])[0]
+            if re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
+                return 'https://www.youtube.com/watch?v=' + video + '&list=' + playlist
+            return 'https://www.youtube.com/playlist?list=' + playlist
         video = url.path.strip('/') if url.hostname == 'youtu.be' else parse_qs(url.query).get('v', [''])[0]
         match = re.fullmatch(r'/(shorts|embed)/([A-Za-z0-9_-]{11})/?', url.path)
         if match:
             video = match[2]
         if re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
             return 'https://www.youtube.com/watch?v=' + video
+    if collection and url.hostname in ('soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com') and re.fullmatch(r'/[^/]+(?:/[^/]+){0,3}/?', url.path):
+        return value
+    if collection and url.hostname in ('api.soundcloud.com', 'api-v2.soundcloud.com') and re.fullmatch(r'/playlists/(?:soundcloud(?::|%3A)playlists(?::|%3A))?[0-9]+/?', url.path):
+        return value
+    if url.hostname in ('api.soundcloud.com', 'api-v2.soundcloud.com') and re.fullmatch(r'/tracks/[0-9]+/?', url.path):
+        return value
     if url.hostname in ('soundcloud.com', 'www.soundcloud.com') and re.fullmatch(r'/[^/]+/[^/]+/?', url.path) and not re.search(r'/(sets|likes|tracks|albums|popular-tracks)/?$', url.path):
         return value
     if url.hostname in ('on.soundcloud.com', 'snd.sc') and re.fullmatch(r'/[A-Za-z0-9]+/?', url.path):
@@ -111,7 +123,9 @@ def worker(job):
     state = json.loads((job / 'status.json').read_text(encoding='utf-8'))
     try:
         tools_config = json.loads((ROOT / 'data/download-tools.json').read_text(encoding='utf-8'))
-        args = [tools_config['ytdlp'], '--js-runtimes', tools_config['runtime'], '--ignore-config', '--no-playlist', '--socket-timeout', '20', '--retries', '2']
+        args = [tools_config['ytdlp'], '--js-runtimes', tools_config['runtime'], '--ignore-config', '--socket-timeout', '20', '--retries', '2']
+        state['snapshot'] = bool(state.get('collection') and parse_qs(urlparse(state['url']).query).get('list',[''])[0].startswith('RD'))
+        args += ['--yes-playlist','--flat-playlist','--playlist-end','50' if state['snapshot'] else '2001'] if state.get('collection') and state['status'] == 'previewing' else ['--no-playlist']
         if state['status'] == 'previewing':
             args += ['--skip-download', '--dump-single-json']
         else:
@@ -137,7 +151,36 @@ def worker(job):
             raise RuntimeError(next((line for line in reversed(errors) if line.startswith('ERROR:')), 'The source could not be downloaded. See the import logs.'))
         if state['status'] == 'previewing':
             info = json.loads((job / 'stdout.log').read_text(encoding='utf-8'))
-            if info.get('_type') in ('playlist', 'multi_video') or info.get('is_live') or info.get('live_status') in ('is_live', 'is_upcoming') or not info.get('duration'):
+            metadata_spec = spec_from_file_location('collection_metadata', Path(__file__).with_name('collection_metadata.py'))
+            if Path(metadata_spec.origin).is_file():
+                metadata = module_from_spec(metadata_spec)
+                metadata_spec.loader.exec_module(metadata)
+                info = metadata.enrich(info, cachedir=str(ROOT / 'cache/source-metadata'))
+            if info.get('_type') in ('playlist', 'multi_video'):
+                entries = []
+                def collect(items):
+                    for item in items:
+                        if not item:
+                            continue
+                        if item.get('entries'):
+                            collect(item['entries'])
+                            continue
+                        try:
+                            url = 'https://www.youtube.com/watch?v=' + item['id'] if re.fullmatch(r'[A-Za-z0-9_-]{11}', item.get('id','')) and 'soundcloud' not in info.get('extractor','').lower() else item.get('webpage_url') or item.get('url','')
+                            entries.append({'url':validate(url,True),'title':item.get('title',''),'artist':item.get('uploader',''),'cover':item.get('thumbnail',''),'collection':bool(re.search(r'/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)',url))})
+                        except ValueError:
+                            continue
+                if len(info.get('entries', [])) >= 2001:
+                    raise ValueError('This collection has more than 2000 entries. Use a smaller playlist.')
+                collect(info.get('entries', []))
+                if len(entries) > 2000:
+                    raise ValueError('This collection has more than 2000 entries. Use a smaller playlist.')
+                if not entries:
+                    raise ValueError('This collection has no accessible songs.')
+                state.update(status='ready', entries=entries, title=info.get('title','Collection'), cover=info.get('thumbnail') or next((t['url'] for t in reversed(info.get('thumbnails',[])) if t.get('url')), entries[0].get('cover','')), source='SoundCloud' if 'soundcloud' in info.get('extractor','').lower() else 'YouTube')
+                write(job, state)
+                return
+            if info.get('is_live') or info.get('live_status') in ('is_live', 'is_upcoming') or not info.get('duration'):
                 raise ValueError('Use a finished, single song upload.')
             state.update(status='ready', title=info.get('track') or info['title'], artist=info.get('artist') or info.get('uploader', ''), duration=info['duration'],
                          cover=info.get('thumbnail', ''), source='SoundCloud' if 'soundcloud' in info['extractor'].lower() else 'YouTube')
@@ -249,7 +292,7 @@ def request(route, query, size):
         identifier = uuid.uuid4().hex
         job = JOBS / identifier
         job.mkdir()
-        state = {'id':identifier, 'url':validate(body.get('url', '')), 'status':'previewing'}
+        state = {'id':identifier, 'url':validate(body.get('url', ''),bool(body.get('collection'))), 'collection':bool(body.get('collection')), 'status':'previewing'}
         start(job, state)
         return state
     if not re.fullmatch(r'[a-f0-9]{32}', identifier):
@@ -257,6 +300,8 @@ def request(route, query, size):
     job = JOBS / identifier
     state = json.loads((job / 'status.json').read_text(encoding='utf-8'))
     if route == '/link-download':
+        if state.get('entries'):
+            raise ValueError('Choose the collection queue before downloading.')
         if state['status'] != 'ready':
             raise ValueError('Wait for the song preview first.')
         saved = find_saved(state)

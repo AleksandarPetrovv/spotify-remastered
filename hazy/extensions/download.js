@@ -342,6 +342,41 @@
     }
 
     window.SpotifyRemasteredDownloads = {
+        backgroundCollection: function(task) {
+            var state = { id: 'import:' + task.id, type: 'collection', label: 'Collection', name: task.title,
+                total: task.total, cover: '', collectionCovers: task.cover || '', finished: false,
+                openFolder: task.openFolder, cancelImport: task.cancel };
+            collectionDownloads.set(state.id, state);
+            collectionPanel(state);
+            function update(progress) {
+                if (!progress || state.finished) return;
+                state.progress = progress;
+                state.collectionCovers = progress.cover || state.collectionCovers;
+                state.ui.status.textContent = progress.name;
+                state.ui.detail.textContent = progress.done + ' of ' + progress.total + ' processed · ' + Math.max(0, progress.total - progress.done - 1) + ' queued';
+                state.ui.current.textContent = progress.queued.length ? 'Queued: ' + progress.queued.join(' · ') : progress.artist || '';
+                state.ui.current.hidden = !state.ui.current.textContent;
+            }
+            state.finish = function(message, error) {
+                if (state.finished) return;
+                state.finished = true;
+                state.ui.status.textContent = message;
+                state.ui.heading.hidden = true;
+                state.ui.current.hidden = true;
+                state.ui.actions.hidden = false;
+                state.ui.cancel.disabled = false;
+                state.ui.cancel.title = 'Dismiss';
+                state.ui.cancel.setAttribute('aria-label', 'Dismiss collection import');
+                var failed = state.progress && state.progress.failed || [];
+                state.ui.detail.textContent = failed.length ? failed.length + ' failed' : '';
+                state.ui.detail.title = failed.map(function(f) { return f.name + ': ' + f.message; }).join('\n');
+                state.ui.detail.hidden = !failed.length;
+                toastIcon(state.ui.icon, error ? '<span style="font-size:22px">!</span>' : successMarkup, state.collectionCovers);
+                state.dismiss = dismissTimer(state.remove, 5000);
+            };
+            update(task.progress);
+            return { update: update, finish: function(status, message) { state.finish(message || (status === 'cancelled' ? 'Import cancelled' : 'Collection imported'), status === 'error' || !!(state.progress && state.progress.failed.length)); } };
+        },
         backgroundImport: function(task) {
             var id = 'import:' + task.id;
             var dl = { name: task.title, artist: task.artist || '', cover: task.cover || '', status: 'downloading',
@@ -541,7 +576,7 @@
         var actions = document.createElement('div');
         actions.className = 'spotdl-actions';
         actions.hidden = true;
-        var open = actionButton('Open folder', function() { return openFolder(state.id, 'playlist'); });
+        var open = actionButton('Open folder', function() { return state.openFolder ? state.openFolder() : openFolder(state.id, 'playlist'); });
         copy.append(heading, status, current, detail, actions);
         var cancel = document.createElement('button');
         cancel.textContent = '\u00d7';
@@ -551,7 +586,8 @@
             if (state.finished) { state.remove(); return; }
             cancel.disabled = true;
             try {
-                await helperRequest('playlist-cancel?id=' + state.id, 8000);
+                if (state.cancelImport) await state.cancelImport();
+                else await helperRequest('playlist-cancel?id=' + state.id, 8000);
                 state.finish('Download cancelled', false);
             } catch (e) {
                 cancel.disabled = false;

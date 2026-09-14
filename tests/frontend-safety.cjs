@@ -10,7 +10,7 @@ const closing = source.slice(source.indexOf('        async function close(cancel
 function importFixture(bridge) {
     const node = {style: {}, setAttribute(name, value) {this[name] = value;}, remove() {}};
     const env = {
-        closing: false, cancel: {disabled: false}, closed: false, open: true, timer: null, importing: true,
+        collection: null, bulkProgress: null, lastSavedId: null, closing: false, cancel: {disabled: false}, closed: false, open: true, timer: null, importing: true,
         cancelled: false, importId: 'test', title: {value: 'song'}, artist: {value: 'artist'}, name: 'playlist',
         job: {id: 'test', status: 'downloading'}, background: null, reduced: true, removed: [], hidden: 0,
         Spicetify: {PopupModal: {hide() {env.hidden++;}}},

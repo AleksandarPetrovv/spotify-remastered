@@ -1,4 +1,5 @@
 $script:linkJobs = @{}
+$script:collectionMetadataTool = Join-Path $PSScriptRoot 'collection_metadata.py'
 $script:linkRoot = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
 if (Test-Path -LiteralPath $script:linkRoot) {
     Get-ChildItem -LiteralPath $script:linkRoot -Directory | Where-Object { $_.Name -ieq 'local songs' -and $_.Name -cne 'local songs' } | ForEach-Object {
@@ -95,17 +96,31 @@ function Clear-LinkJobs {
     }
 }
 
-function Get-LinkUrl($value) {
+function Get-LinkUrl($value, [bool]$Collection = $false) {
     $url = $null
     if (-not [Uri]::TryCreate([string]$value, [UriKind]::Absolute, [ref]$url) -or $url.Scheme -ne 'https' -or $url.UserInfo -or $url.Port -ne 443) { throw 'Paste a valid HTTPS YouTube or SoundCloud song link.' }
     $hostName = $url.DnsSafeHost.ToLowerInvariant()
     if ($hostName -in @('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com')) {
+        $list = [System.Web.HttpUtility]::ParseQueryString($url.Query)['list']
+        if ($Collection -and $list -match '^[A-Za-z0-9_-]{1,200}$') {
+            $video = [System.Web.HttpUtility]::ParseQueryString($url.Query)['v']
+            if ($video -match '^[A-Za-z0-9_-]{11}$') { return "https://www.youtube.com/watch?v=$video&list=$list" }
+            return "https://www.youtube.com/playlist?list=$list"
+        }
         $id = [System.Web.HttpUtility]::ParseQueryString($url.Query)['v']
         if ($url.AbsolutePath -match '^/(shorts|embed)/([A-Za-z0-9_-]{11})/?$') { $id = $Matches[2] }
         if ($id -notmatch '^[A-Za-z0-9_-]{11}$') { throw 'Use a single YouTube video link.' }
         return "https://www.youtube.com/watch?v=$id"
     }
-    if ($hostName -eq 'youtu.be' -and $url.AbsolutePath -match '^/([A-Za-z0-9_-]{11})/?$') { return "https://www.youtube.com/watch?v=$($Matches[1])" }
+    if ($hostName -eq 'youtu.be' -and $url.AbsolutePath -match '^/([A-Za-z0-9_-]{11})/?$') {
+        $video = $Matches[1]
+        $list = [System.Web.HttpUtility]::ParseQueryString($url.Query)['list']
+        if ($Collection -and $list -match '^[A-Za-z0-9_-]{1,200}$') { return "https://www.youtube.com/watch?v=$video&list=$list" }
+        return "https://www.youtube.com/watch?v=$video"
+    }
+    if ($Collection -and $hostName -in @('soundcloud.com','www.soundcloud.com','m.soundcloud.com') -and $url.AbsolutePath -match '^/[^/]+(?:/[^/]+){0,3}/?$') { return $url.AbsoluteUri }
+    if ($Collection -and $hostName -in @('api.soundcloud.com','api-v2.soundcloud.com') -and $url.AbsolutePath -match '^/playlists/(?:soundcloud(?::|%3A)playlists(?::|%3A))?[0-9]+/?$') { return $url.AbsoluteUri }
+    if ($hostName -in @('api.soundcloud.com','api-v2.soundcloud.com') -and $url.AbsolutePath -match '^/tracks/[0-9]+/?$') { return $url.AbsoluteUri }
     if ($hostName -in @('soundcloud.com', 'www.soundcloud.com') -and $url.AbsolutePath -match '^/[^/]+/[^/]+/?$' -and $url.AbsolutePath -notmatch '/(sets|likes|tracks|albums|popular-tracks)/?$') { return $url.AbsoluteUri }
     if ($hostName -in @('on.soundcloud.com', 'snd.sc') -and $url.AbsolutePath -match '^/[A-Za-z0-9]+/?$') { return $url.AbsoluteUri }
     throw 'Use a single YouTube or SoundCloud song link, rather than a playlist or profile.'
@@ -141,7 +156,40 @@ function Update-Link($job) {
         }
         if ($job.Status -eq 'previewing') {
             $info = Get-Content -LiteralPath (Join-Path $job.Dir 'stdout.log') -Raw -Encoding UTF8 | ConvertFrom-Json
-            if ($info._type -in @('playlist', 'multi_video') -or $info.is_live -or $info.live_status -in @('is_live', 'is_upcoming') -or -not $info.duration) { throw 'Use a finished, single song upload.' }
+            if (-not $job.MetadataStarted -and $info.extractor -like '*soundcloud*' -and $info.entries -and $script:collectionMetadataTool -and (Test-Path -LiteralPath $script:collectionMetadataTool)) {
+                $python = Join-Path $script:linkRoot 'dependencies\downloader\Scripts\python.exe'
+                $arguments = '"' + $script:collectionMetadataTool + '" "' + (Join-Path $job.Dir 'stdout.log') + '" "' + (Join-Path $script:linkRoot 'cache\source-metadata') + '"'
+                $job.Process = Start-Process -FilePath $python -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput (Join-Path $job.Dir 'metadata.log') -RedirectStandardError (Join-Path $job.Dir 'metadata.err')
+                $handle = $job.Process.Handle
+                $job.MetadataStarted = $true
+                $job.StartedAt = [DateTime]::UtcNow
+                return
+            }
+            if ($info._type -in @('playlist','multi_video')) {
+                if (@($info.entries).Count -ge 2001) { throw 'This collection has more than 2000 entries. Use a smaller playlist.' }
+                $entries = New-Object 'System.Collections.Generic.List[object]'
+                function Add-CollectionEntries($items) {
+                    foreach ($entry in $items) {
+                        if (-not $entry) { continue }
+                        if ($entry.entries) { Add-CollectionEntries $entry.entries; continue }
+                        try {
+                            $entryUrl = if ($entry.id -match '^[A-Za-z0-9_-]{11}$' -and $info.extractor -notlike '*soundcloud*') { "https://www.youtube.com/watch?v=$($entry.id)" } elseif ($entry.webpage_url) { $entry.webpage_url } else { $entry.url }
+                            $entryUrl = Get-LinkUrl $entryUrl $true
+                            $entries.Add(@{ url=$entryUrl; title=$entry.title; artist=$entry.uploader; cover=$entry.thumbnail; collection=($entryUrl -match '/playlist(?:s/|\?)|/sets/|/albums(?:$|\?)') })
+                        } catch {}
+                    }
+                }
+                Add-CollectionEntries $info.entries
+                if (-not $entries.Count) { throw 'This collection has no accessible songs.' }
+                if ($entries.Count -gt 2000) { throw 'This collection has more than 2000 entries. Use a smaller playlist.' }
+                $job.Entries = @($entries.ToArray())
+                $job.Title = $info.title
+                $job.Cover = if ($info.thumbnail) { $info.thumbnail } elseif ($info.thumbnails) { $info.thumbnails[-1].url } else { $job.Entries[0].cover }
+                $job.Source = if ($info.extractor -like '*soundcloud*') { 'SoundCloud' } else { 'YouTube' }
+                $job.Status = 'ready'
+                return
+            }
+            if ($info.is_live -or $info.live_status -in @('is_live', 'is_upcoming') -or -not $info.duration) { throw 'Use a finished upload rather than a livestream.' }
             $job.Title = if ($info.track) { $info.track } else { $info.title }
             $job.Artist = if ($info.artist) { $info.artist } else { $info.uploader }
             $job.Duration = $info.duration
@@ -196,15 +244,18 @@ function Handle-Link($ctx, $route) {
         $job = if ($id -and $script:linkJobs.ContainsKey($id)) { $script:linkJobs[$id] } else { $null }
         if ($route -eq '/link-preview') {
             if (@($script:linkJobs.Values | Where-Object { $_.Status -in @('previewing', 'downloading') }).Count) { throw 'Another link import is running. Finish or cancel it first.' }
-            $url = Get-LinkUrl $body.url
+            $url = Get-LinkUrl $body.url ([bool]$body.collection)
             $id = [Guid]::NewGuid().ToString('N')
             $dir = Join-Path $script:linkRoot "cache\import-logs\$id"
             New-Item -ItemType Directory -Force -Path $dir | Out-Null
             $job = @{ Id = $id; Dir = $dir; Url = $url; Status = 'previewing'; Message = $null }
-            Start-LinkProcess $job "--ignore-config --no-playlist --skip-download --dump-single-json --socket-timeout 20 --retries 2 -- `"$url`""
+            $job.Snapshot = [bool]($body.collection -and $url -match '[?&]list=RD')
+            $mode = if ($job.Snapshot) { '--yes-playlist --flat-playlist --playlist-end 50' } elseif ($body.collection) { '--yes-playlist --flat-playlist --playlist-end 2001' } else { '--no-playlist' }
+            Start-LinkProcess $job "--ignore-config $mode --skip-download --dump-single-json --socket-timeout 20 --retries 2 -- `"$url`""
             $script:linkJobs[$id] = $job
         } elseif (-not $job) { throw 'This import is no longer available. Paste the link again.' }
         elseif ($route -eq '/link-download') {
+            if ($job.Entries) { throw 'Choose the collection queue before downloading.' }
             if ($job.Status -ne 'ready') { throw 'Wait for the song preview first.' }
             $saved = Find-SavedLink $job
             if ($saved) {
@@ -233,6 +284,6 @@ function Handle-Link($ctx, $route) {
             if (-not $job.Folder) { throw 'The song has not been saved yet.' }
             Invoke-Item -LiteralPath $job.Folder
         }
-        Respond $ctx (@{ id = $job.Id; status = $job.Status; reused = [bool]$job.Reused; message = $job.Message; title = $job.Title; artist = $job.Artist; duration = $job.Duration; cover = $job.Cover; source = $job.Source; folder = $job.Folder } | ConvertTo-Json -Compress)
+        Respond $ctx (@{ id = $job.Id; status = $job.Status; reused = [bool]$job.Reused; message = $job.Message; title = $job.Title; artist = $job.Artist; duration = $job.Duration; cover = $job.Cover; source = $job.Source; folder = $job.Folder; entries = $job.Entries; snapshot = $job.Snapshot } | ConvertTo-Json -Depth 8 -Compress)
     } catch { Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress) }
 }

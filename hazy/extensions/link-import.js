@@ -7,9 +7,14 @@
         .sr-link-button:hover {color:var(--spice-text);background:transparent;transform:scale(1.1)}
         .sr-link-button:focus-visible {outline:2px solid var(--spice-text);outline-offset:3px}
         .sr-link-button svg {overflow:visible;stroke:none}
-        .spicetify-popup-container:has(#sr-link-import) {width:520px!important;max-width:calc(100vw - 48px)!important}
+        .spicetify-popup-container:has(#sr-link-import) {width:520px!important;max-width:calc(100vw - 48px)!important;max-height:calc(100vh - 48px)!important;overflow-y:auto}
         #sr-link-import {display:flex;flex-direction:column;gap:20px;color:var(--spice-text);font-size:14px}
         #sr-link-import p {margin:0;color:var(--spice-subtext);line-height:1.5}
+        .sr-bulk-queue {max-height:min(220px,calc(100vh - 520px))!important;min-height:96px}
+        .sr-bulk-queue::-webkit-scrollbar-button {display:none;width:0;height:0}
+        .sr-bulk-row {min-height:38px!important;gap:12px}
+        .sr-bulk-row span {width:24px;flex-shrink:0;color:var(--spice-subtext)}
+        .sr-bulk-row strong {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
         .sr-link-tabs {display:flex;gap:8px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px}
         #sr-link-import button {font:inherit;cursor:pointer;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:transparent;color:var(--spice-text);padding:9px 14px}
         #sr-link-import button:hover {background:rgba(255,255,255,.08)}
@@ -94,7 +99,7 @@
             if (url.protocol !== 'https:' || url.username || url.password || url.port) return false;
             return source === 'YouTube'
                 ? /^(www\.|m\.|music\.)?youtube\.com$|^youtu\.be$/.test(url.hostname)
-                : /^(www\.)?soundcloud\.com$|^on\.soundcloud\.com$|^snd\.sc$/.test(url.hostname);
+                : /^(www\.|m\.)?soundcloud\.com$|^on\.soundcloud\.com$|^snd\.sc$/.test(url.hostname);
         } catch { return false; }
     }
     async function addIndexed(job, uri, status, cancelled = () => false) {
@@ -160,20 +165,23 @@
         open = true;
         let source = 'YouTube', job = null, busy = false, closed = false, timer = null;
         let importing = false, cancelled = false, background = null;
+        let collection = null, bulkProgress = null, lastSavedId = null;
         const stopped = () => cancelled || (closed && !importing);
         const importId = crypto.randomUUID();
         const root = element('div'); root.id = 'sr-link-import';
-        root.append(element('p', 'Add a local song to “' + name + '”. The MP3 stays in Spotify Remastered’s local songs folder.'));
+        root.append(element('p', 'Add songs to “' + name + '”. MP3s stay in Spotify Remastered’s local songs folder.'));
         const tabs = element('div', null, 'sr-link-tabs'); tabs.setAttribute('role','tablist');
-        const input = element('input'); input.type = 'url'; input.placeholder = 'Paste a YouTube song link'; input.setAttribute('aria-label','Song link');
+        const input = element('input'); input.type = 'url'; input.placeholder = 'Paste a YouTube song or collection link'; input.setAttribute('aria-label','Song or collection link');
         const status = element('p', '', 'sr-link-status'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite');
         const preview = element('div'); preview.hidden = true;
         function field(label) { const wrap = element('label',label,'sr-link-field');const value=element('input');value.maxLength=200;wrap.append(value);preview.append(wrap);return value; }
         const title = field('Title'), artist = field('Artist');
         preview.style.cssText='display:none;flex-direction:column;gap:16px';
-        const coverRow=element('div',null,'sr-link-preview');root.append(tabs,input,coverRow,preview,status);
+        const coverRow=element('div',null,'sr-link-preview');
+        const bulkList=element('div',null,'sr-local-list sr-bulk-queue');bulkList.hidden=true;
+        root.append(tabs,input,coverRow,preview,bulkList,status);
         const actions=element('div',null,'sr-link-actions');root.append(actions);
-        const cancel=element('button','Cancel'), primary=element('button','Find song','sr-link-primary');actions.append(cancel,primary);
+        const cancel=element('button','Cancel'), primary=element('button','Find link','sr-link-primary');actions.append(cancel,primary);
         const another=element('button','Add another','sr-link-primary');another.hidden=true;actions.append(another);
         const localPanel=element('div');localPanel.hidden=true;localPanel.style.cssText='display:none;flex-direction:column;gap:12px';
         const search=element('input');search.type='search';search.placeholder='Search local songs';search.setAttribute('aria-label','Search local songs');
@@ -221,7 +229,7 @@
         function resetSearch() {
             if(busy)return;
             const previous=job;
-            job=null;
+            job=null;collection=null;bulkProgress=null;lastSavedId=null;bulkList.hidden=true;bulkList.replaceChildren();
             clearTimeout(timer);
             timer=null;
             if(previous?.status==='ready')request('link-cancel?id='+previous.id).catch(()=>{});
@@ -231,7 +239,7 @@
             coverRow.replaceChildren();
             status.textContent='';
             primary.hidden=false;
-            primary.textContent='Find song';
+            primary.textContent='Find link';
             another.hidden=true;
             [...actions.children].forEach(button=>{if(button!==cancel && button!==primary && button!==another)button.remove();});
         }
@@ -239,7 +247,7 @@
         input.addEventListener('input',resetSearch);
         for (const platform of ['YouTube','SoundCloud','Local']) {
             const tab=element('button',platform);tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(platform===source));tabs.append(tab);
-            tab.onclick=()=>{if(busy)return;source=platform;resetSearch();const isLocal=platform==='Local';input.hidden=isLocal;primary.hidden=isLocal;localPanel.hidden=!isLocal;localPanel.style.display=isLocal?'flex':'none';input.placeholder='Paste a '+platform+' song link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));if(isLocal){search.value='';search.focus();loadLocal();}else input.focus();};
+            tab.onclick=()=>{if(busy)return;source=platform;resetSearch();const isLocal=platform==='Local';input.hidden=isLocal;primary.hidden=isLocal;localPanel.hidden=!isLocal;localPanel.style.display=isLocal?'flex':'none';input.placeholder='Paste a '+platform+' song or collection link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));if(isLocal){search.value='';search.focus();loadLocal();}else input.focus();};
         }
         function setBusy(value) {busy=value;search.disabled=value;input.disabled=value;title.disabled=artist.disabled=value;primary.disabled=value;[...tabs.children].forEach(tab=>tab.disabled=value);cancel.textContent=value?'Cancel import':'Close';}
         async function waitJob(id, phase) {
@@ -253,20 +261,101 @@
             if(stopped())return null;
             throw new Error('Import timed out. Check the import logs.');
         }
+        function renderBulk() {
+            bulkList.hidden=false;
+            bulkList.replaceChildren();
+            const start=bulkProgress?.done || 0;
+            const entries=collection.entries.slice(start,start+8);
+            for(const [index,entry] of entries.entries()) {
+                const row=element('div',null,'sr-local-row sr-bulk-row');
+                row.append(element('span',String(start+index+1)),element('strong',entry.title || 'Song '+(start+index+1)));
+                bulkList.append(row);
+            }
+            if(collection.entries.length>start+8)bulkList.append(element('p','+'+(collection.entries.length-start-8)+' more queued'));
+        }
+        async function runBulk() {
+            importing=true;
+            const expanded=new Set();
+            bulkProgress={total:collection.entries.length,done:0,added:0,existing:0,failed:[],queued:[],name:'Preparing collection…',artist:'',cover:collection.cover};
+            try {
+                await request('link-cancel?id='+collection.id);
+                for(let index=0;index<collection.entries.length && !cancelled;index++) {
+                    const entry=collection.entries[index];
+                    bulkProgress.name=entry.title || 'Song '+(index+1);
+                    bulkProgress.queued=collection.entries.slice(index+1,index+4).map(e=>e.title || 'Song');
+                    status.textContent='Finding “'+bulkProgress.name+'”… · '+index+' of '+bulkProgress.total;
+                    background?.update(bulkProgress);
+                    try {
+                        job=await request('link-preview',{url:entry.url,collection:true});
+                        job=await waitJob(job.id,'previewing');if(!job)break;
+                        if(job.entries?.length) {
+                            if(expanded.has(entry.url))throw new Error('This collection links back to an already expanded collection.');
+                            expanded.add(entry.url);
+                            if(collection.entries.length-1+job.entries.length>2000)throw new Error('The expanded collection has more than 2000 songs. Use a smaller collection.');
+                            await request('link-cancel?id='+job.id);
+                            collection.entries.splice(index,1,...job.entries);
+                            bulkProgress.total=collection.entries.length;
+                            renderBulk();index--;continue;
+                        }
+                        const songTitle=String(job.title || entry.title || 'Song').slice(0,200);
+                        const songArtist=String(job.artist || entry.artist || 'Unknown artist').slice(0,200);
+                        bulkProgress.name=songTitle;bulkProgress.artist=songArtist;
+                        if(!bulkProgress.cover)bulkProgress.cover=job.cover;
+                        status.textContent='Downloading “'+songTitle+'”… · '+index+' of '+bulkProgress.total;
+                        background?.update(bulkProgress);
+                        if(cancelled)break;
+                        job=await request('link-download',{id:job.id,title:songTitle,artist:songArtist});
+                        job=await waitJob(job.id,'downloading');if(!job)break;
+                        if(job.status==='cancelled')break;
+                        lastSavedId=job.id;
+                        bulkProgress.name='Adding “'+songTitle+'”…';background?.update(bulkProgress);
+                        const result=await addIndexed(job,uri,status,stopped);
+                        bulkProgress[result==='existing'?'existing':'added']++;
+                    } catch(error) {
+                        if(cancelled)break;
+                        if(job?.id && job.status!=='done')await request('link-cancel?id='+job.id).catch(()=>{});
+                        bulkProgress.failed.push({name:entry.title || 'Song '+(index+1),message:error.message});
+                    }
+                    bulkProgress.done=index+1;
+                    status.textContent=bulkProgress.done+' of '+bulkProgress.total+' processed · '+bulkProgress.added+' added';
+                    renderBulk();background?.update(bulkProgress);
+                }
+                const message=cancelled?'Import cancelled':bulkProgress.added+' added to “'+name+'”'+(bulkProgress.existing?' · '+bulkProgress.existing+' already in playlist':'')+(bulkProgress.failed.length?' · '+bulkProgress.failed.length+' failed':'');
+                status.textContent=message;
+                if(bulkProgress.failed.length)status.title=bulkProgress.failed.map(f=>f.name+': '+f.message).join('\n');
+                background?.finish(cancelled?'cancelled':'done',message);
+                primary.hidden=true;another.hidden=false;
+            } finally { importing=false; }
+        }
         primary.onclick=async()=>{
             setBusy(true);
             try {
                 if (!job) {
-                    if(!validLink(input.value.trim(),source))throw new Error('Paste a valid '+source+' song link.');
-                    status.textContent='Finding song…';
-                    job=await request('link-preview',{url:input.value.trim()});
+                    if(!validLink(input.value.trim(),source))throw new Error('Paste a valid '+source+' song or collection link.');
+                    status.textContent='Reading link…';
+                    job=await request('link-preview',{url:input.value.trim(),collection:true});
                     if(closed){request('link-cancel?id='+job.id).catch(()=>{});return;}
                     job=await waitJob(job.id,'previewing');if(!job)return;
                     if(job.status==='cancelled')throw new Error('Import cancelled.');
+                    collection=job.entries?.length ? job : null;
+                    if(collection && !collection.cover) {
+                        let probe;
+                        try {
+                            probe=await request('link-preview',{url:collection.entries[0].url,collection:true});
+                            const found=await waitJob(probe.id,'previewing');
+                            collection.cover=found?.cover || '';
+                        } catch {} finally {if(probe?.id)await request('link-cancel?id='+probe.id).catch(()=>{});}
+                        if(closed)return;
+                    }
+                    const entryLabel=collection?.entries.some(entry=>entry.collection)?'entries':'songs';
                     title.value=job.title;artist.value=job.artist || '';
                     if(/^https:\/\//.test(job.cover || '')){const image=element('img');image.src=job.cover;image.alt='';image.onerror=()=>image.remove();coverRow.append(image);}
-                    const text=element('div');text.append(element('strong',job.title),element('p',job.source+' · '+Math.round(job.duration/60)+' min'));coverRow.append(text);
-                    preview.hidden=false;preview.style.display='flex';status.textContent='Check the title and artist before adding.';primary.textContent='Download and add';
+                    const text=element('div');text.append(element('strong',job.title),element('p',job.source+' · '+(collection?collection.entries.length+' '+entryLabel:Math.round(job.duration/60)+' min')));coverRow.append(text);
+                    preview.hidden=!!collection;preview.style.display=collection?'none':'flex';
+                    if(collection)renderBulk();
+                    status.textContent=collection?'Download this collection in order and add it to “'+name+'”.'+(collection.snapshot?' This mix/radio uses a snapshot of up to 50 available songs.':''):'Check the title and artist before adding.';primary.textContent=collection?'Download and add '+collection.entries.length+' '+entryLabel:'Download and add';
+                } else if(collection) {
+                    await runBulk();
                 } else {
                     if(!title.value.trim() || !artist.value.trim())throw new Error('Enter the song title and artist.');
                     importing=true;
@@ -286,7 +375,7 @@
                 background?.finish(cancelled?'cancelled':'error',error.message);
                 if(!closed){status.textContent=error.message;
                     if(job?.status==='done'){primary.hidden=true;const folder=element('button','Open folder');folder.onclick=()=>request('link-folder?id='+job.id).catch(error=>status.textContent=error.message);const files=element('button','Open local files');files.onclick=()=>{Spicetify.Platform.History.push('/collection/local-files');close();};actions.prepend(files,folder);}
-                    else if(job?.status!=='ready'){job=null;primary.textContent='Find song';}
+                    else if(job?.status!=='ready'){job=null;primary.textContent='Find link';}
                 }
             } finally {importing=false;if(!closed){setBusy(false);cancel.disabled=false;}}
         };
@@ -308,11 +397,11 @@
             if(closing || cancel.disabled)return;closing=true;closed=true;clearTimeout(timer);
             if(cancelImport)cancelled=true;
             if(importing && !cancelled) {
-                const task = {id:importId,title:title.value.trim(),artist:artist.value.trim(),cover:job?.cover,
+                const task = {id:importId,title:collection?.title || title.value.trim(),artist:artist.value.trim(),cover:bulkProgress?.cover || job?.cover,total:bulkProgress?.total,progress:bulkProgress,
                     extra:job?.status==='done'?'Adding to “'+name+'”…':'For “'+name+'”',
                     cancel:async()=>{cancelled=true;if(job?.id && job.status!=='done')await request('link-cancel?id='+job.id);},
-                    openFolder:()=>job?.id && request('link-folder?id='+job.id).catch(error=>showImportNotice(error.message,true))};
-                try { background=window.SpotifyRemasteredDownloads?.backgroundImport(task); } catch {}
+                    openFolder:()=>(lastSavedId || job?.id) && request('link-folder?id='+(lastSavedId || job.id)).catch(error=>showImportNotice(error.message,true))};
+                try { background=collection ? window.SpotifyRemasteredDownloads?.backgroundCollection(task) : window.SpotifyRemasteredDownloads?.backgroundImport(task); } catch {}
                 if(!background)showImportNotice('Import continues in the background.');
             } else if(job?.id && job.status!=='done') request('link-cancel?id='+job.id).catch(()=>{});
             window.removeEventListener('keydown',keydown,true);overlay?.removeEventListener('click',click,true);
@@ -330,7 +419,7 @@
             if(outside || dismiss){event.preventDefault();event.stopImmediatePropagation();if(dismiss)close();}
         }
         function keydown(event){if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
-        overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=()=>close(importing && job?.status!=='done');input.focus();
+        overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=()=>close((collection && importing) || (importing && job?.status!=='done'));input.focus();
         overlay?.addEventListener('pointerdown',pointerdown,true);
         window.addEventListener('pointermove',pointermove,true);
         window.addEventListener('pointercancel',resetPress,true);

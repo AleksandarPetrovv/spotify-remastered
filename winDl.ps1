@@ -164,6 +164,7 @@ Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $cus
 foreach ($file in @('link-helper.ps1','setup-link-tools.ps1','local-catalogue.ps1','repair-spicetify.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
 
 Copy-Item (Join-Path $repo 'winDel.ps1') (Join-Path $customDir 'scripts\winDel.ps1') -Force
+if (Test-Path -LiteralPath (Join-Path $repo 'hazy\extensions\collection_metadata.py')) { Copy-Item (Join-Path $repo 'hazy\extensions\collection_metadata.py') (Join-Path $customDir 'scripts\collection_metadata.py') -Force }
 if (Test-Path -LiteralPath (Join-Path $repo 'hazy\extensions\uninstall-helper.py')) { Copy-Item (Join-Path $repo 'hazy\extensions\uninstall-helper.py') (Join-Path $customDir 'scripts\uninstall-helper.py') -Force }
 if (Test-Path -LiteralPath (Join-Path $repo 'hazy\extensions\uninstall-worker.ps1')) { Copy-Item (Join-Path $repo 'hazy\extensions\uninstall-worker.ps1') (Join-Path $customDir 'scripts\uninstall-worker.ps1') -Force }
 $dlHelperScript = Join-Path $customDir "scripts\download-helper.ps1"

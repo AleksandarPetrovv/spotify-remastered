@@ -38,13 +38,14 @@ function Stop-Download($dl) {
     }
 }
 
-function Get-DownloadIndexPath($folder, $jobsDir) {
+function Get-DownloadIndexPath($folder, $jobsDir, $format = 'mp3') {
+    if (-not $format) { $format = 'mp3' }
     $directory = Join-Path $jobsDir 'playlist-index'
     New-Item -ItemType Directory -Path $directory -Force | Out-Null
     $sha = [Security.Cryptography.SHA256]::Create()
     try { $key = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($folder)).ToLowerInvariant()))).Replace('-', '') }
     finally { $sha.Dispose() }
-    return Join-Path $directory ($key + '.json')
+    return Join-Path $directory ($key + $(if ($format -eq 'mp3') { '' } else { '-' + $format }) + '.json')
 }
 
 function Read-DownloadIndex($path) {
@@ -54,7 +55,7 @@ function Read-DownloadIndex($path) {
             $stored = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
             foreach ($property in $stored.PSObject.Properties) {
                 $name = [string]$property.Value
-                if ($name -and [IO.Path]::GetFileName($name) -ceq $name -and [IO.Path]::GetExtension($name) -ieq '.mp3') { $index[$property.Name] = $name }
+                if ($name -and [IO.Path]::GetFileName($name) -ceq $name -and [IO.Path]::GetExtension($name) -in @('.mp3','.wav','.ogg','.flac')) { $index[$property.Name] = $name }
             }
         } catch {}
     }
@@ -70,6 +71,7 @@ function Save-DownloadIndex($path, $index) {
 }
 
 function Move-DownloadAudio($source, $folder, $name) {
+    $extension = [IO.Path]::GetExtension($name)
     $base = [IO.Path]::GetFileNameWithoutExtension($name)
     $suffix = 2
     while ($true) {
@@ -79,23 +81,25 @@ function Move-DownloadAudio($source, $folder, $name) {
             return $name
         } catch [IO.IOException] {
             if (-not (Test-Path -LiteralPath $destination)) { throw }
-            $name = $base + ' (' + $suffix + ').mp3'
+            $name = $base + ' (' + $suffix + ')' + $extension
             $suffix++
         }
     }
 }
 
-function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName = $null) {
+function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName = $null, $format = 'mp3') {
+    if (-not $format) { $format = 'mp3' }
+    if ($format -notin @('mp3','wav','ogg','flac')) { throw 'Invalid audio format.' }
     if ($trackId -notmatch '^[a-zA-Z0-9]{22}$') { throw 'Invalid Spotify track ID.' }
     if (-not (Test-Path -LiteralPath $spotdl -PathType Leaf)) { throw 'The song downloader is missing. Please reinstall Spotify Remastered.' }
     if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) { throw 'FFmpeg is missing.' }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'The download folder does not exist.' }
-    $indexPath = if (-not $fileName) { Get-DownloadIndexPath $folder $jobsDir } else { $null }
+    $indexPath = if (-not $fileName) { Get-DownloadIndexPath $folder $jobsDir $format } else { $null }
     $jobDir = Join-Path $jobsDir ([Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $jobDir -Force | Out-Null
     # relative output avoids spotdl sanitizing dots in parent directory names.
     $output = '{title}.{output-ext}'
-    $argsText = "download `"https://open.spotify.com/track/$trackId`" --output `"$output`" --ffmpeg `"$ffmpeg`" --format mp3 --audio youtube-music youtube --max-retries 2"
+    $argsText = "download `"https://open.spotify.com/track/$trackId`" --output `"$output`" --ffmpeg `"$ffmpeg`" --format $format --audio youtube-music youtube --max-retries 2"
     $runner = Join-Path $env:LOCALAPPDATA 'spotify-remastered\scripts\download-runner.py'
     $python = Join-Path ([System.IO.Path]::GetDirectoryName($spotdl)) 'python.exe'
     $executable = $spotdl
@@ -121,7 +125,7 @@ function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName
     $result = @{ Process = $proc; Status = 'downloading'; Message = $null; StartedAt = [DateTime]::UtcNow;
         JobDir = $jobDir; Folder = $folder; FileName = $fileName; TimeoutSeconds = 600; CompletedAt = $null;
         SharedWorker = $executable -eq $python; WorkerStarted = $false; Stdout = $stdout; Stderr = $stderr;
-        TrackId = $trackId; IndexPath = $indexPath }
+        TrackId = $trackId; Format = $format; IndexPath = $indexPath }
     return $result
 }
 
@@ -139,7 +143,7 @@ function Update-Download($dl) {
             [IO.File]::WriteAllText((Join-Path $dl.JobDir 'stderr.log'), $dl.Stderr.Result)
         }
         # spotdl can exit zero after provider errors; require audio from this job.
-        $files = @(Get-ChildItem -LiteralPath $dl.JobDir -File -Filter '*.mp3' | Where-Object { $_.Length -gt 0 })
+        $files = @(Get-ChildItem -LiteralPath $dl.JobDir -File -Filter ('*.' + $(if ($dl.Format) { $dl.Format } else { 'mp3' })) | Where-Object { $_.Length -gt 0 })
         if ($dl.Process.ExitCode -ne 0 -or $files.Count -ne 1) {
             $dl.Status = 'error'
             $dl.Message = 'The song could not be downloaded. Please try again; details are in the download logs.'
@@ -174,7 +178,7 @@ function Update-Singles {
     $next = $script:downloads.Values | Where-Object { $_.Status -eq 'queued' } | Sort-Object Order | Select-Object -First 1
     if (-not $next) { return }
     try {
-        $index = Read-DownloadIndex (Get-DownloadIndexPath $next.Folder $next.Tools.JobsDir)
+        $index = Read-DownloadIndex (Get-DownloadIndexPath $next.Folder $next.Tools.JobsDir $next.Format)
         if ($index.ContainsKey($next.Id)) {
             $file = Get-Item -LiteralPath (Join-Path $next.Folder $index[$next.Id]) -ErrorAction SilentlyContinue
             if ($file -and -not $file.PSIsContainer -and $file.Length -gt 0 -and -not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
@@ -182,7 +186,7 @@ function Update-Singles {
                 return
             }
         }
-        $script:downloads[$next.Id] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir
+        $script:downloads[$next.Id] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir $null $next.Format
     } catch {
         $next.Status = 'error'
         $next.Message = $_.Exception.Message
@@ -247,6 +251,9 @@ function Get-Downloader {
 }
 
 function Start-Playlist($body, $folder, $tools) {
+    $format = if ($body.format) { [string]$body.format } else { 'mp3' }
+    if ($format -notin @('mp3','wav','ogg','flac')) { throw 'Invalid audio format.' }
+    $extension = '.' + $format
     $tracks = @($body.tracks)
     if ($body.id -notmatch '^[a-zA-Z0-9]{22}$' -or $tracks.Count -eq 0 -or $tracks.Count -gt 10000) { throw 'Invalid or empty playlist.' }
     foreach ($track in $tracks) {
@@ -254,7 +261,7 @@ function Start-Playlist($body, $folder, $tools) {
     }
     $destination = Join-Path $folder (Safe-Name $body.name)
     New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
-    $indexPath = Get-DownloadIndexPath $destination $tools.JobsDir
+    $indexPath = Get-DownloadIndexPath $destination $tools.JobsDir $format
     $index = Read-DownloadIndex $indexPath
     $reserved = @{}
     foreach ($id in $index.Keys) {
@@ -269,12 +276,12 @@ function Start-Playlist($body, $folder, $tools) {
         if ($seen.ContainsKey($track.id)) { $skipped++; continue }
         $seen[$track.id] = $true
         $base = Safe-Name $track.name
-        $name = if ($index.ContainsKey($track.id)) { $index[$track.id] } else { $base + '.mp3' }
+        $name = if ($index.ContainsKey($track.id)) { $index[$track.id] } else { $base + $extension }
         $suffix = 2
         $indexed = $index.ContainsKey($track.id)
         while (($reserved.ContainsKey($name) -and $reserved[$name] -ne $track.id) -or
                ((Test-Path -LiteralPath (Join-Path $destination $name)) -and (-not $indexed -or $index[$track.id] -cne $name))) {
-            $name = $base + ' (' + $suffix + ').mp3'
+            $name = $base + ' (' + $suffix + ')' + $extension
             $suffix++
         }
         $reserved[$name] = $track.id
@@ -285,14 +292,28 @@ function Start-Playlist($body, $folder, $tools) {
     }
     return @{ Status = 'downloading'; Queue = $queue; Active = @{}; Saved = 0; Skipped = $skipped;
         Total = $tracks.Count; Name = $body.name; Id = $body.id; Failed = (New-Object System.Collections.ArrayList); Folder = $destination;
-        Tools = $tools; Index = $index; IndexPath = $indexPath; CompletedAt = $null }
+        Tools = $tools; Format = $format; Index = $index; IndexPath = $indexPath; CompletedAt = $null }
+}
+
+function Start-LocalConversion($track, $batch) {
+    $name = [string]$track.LocalFile
+    if (-not $name -or [IO.Path]::GetFileName($name) -cne $name -or [IO.Path]::GetExtension($name) -ine '.mp3') { throw 'The song could not be uniquely found in local songs.' }
+    $source = Get-Item -LiteralPath (Join-Path (Join-Path $env:LOCALAPPDATA 'spotify-remastered\local songs') $name) -ErrorAction Stop
+    if ($source.PSIsContainer -or $source.Length -eq 0 -or ($source.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'The local song is unavailable.' }
+    $work = Join-Path $batch.Tools.JobsDir ([Guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $work -Force | Out-Null
+    $output = Join-Path $work ('audio.' + $batch.Format)
+    $codec = @{wav='pcm_s16le';ogg='libvorbis';flac='flac'}[$batch.Format]
+    $proc = Start-Process -FilePath $batch.Tools.FFmpeg -ArgumentList "-nostdin -i `"$($source.FullName)`" -vn -map_metadata 0 -c:a $codec `"$output`"" -WindowStyle Hidden -PassThru -RedirectStandardError (Join-Path $work 'stderr.log')
+    $processHandle = $proc.Handle
+    return @{Process=$proc;Status='downloading';StartedAt=[DateTime]::UtcNow;TimeoutSeconds=600;JobDir=$work;Folder=$batch.Folder;FileName=$track.FileName;Format=$batch.Format;SharedWorker=$false}
 }
 
 function Update-Playlist($batch) {
     if ($batch.Status -ne 'downloading') { return }
     foreach ($id in @($batch.Active.Keys)) {
         $entry = $batch.Active[$id]
-        if ($entry.Track.Local) {
+        if ($entry.Track.Local -and $batch.Format -in @($null,'mp3')) {
             $temporary = Join-Path $batch.Folder ([Guid]::NewGuid().ToString('N') + '.pending')
             try {
                 $name = [string]$entry.Track.LocalFile
@@ -309,7 +330,7 @@ function Update-Playlist($batch) {
         } else { Update-Download $entry.Download }
         if ($entry.Download.Status -eq 'downloading') { continue }
         if ($entry.Download.Status -eq 'done') {
-            if (-not $entry.Track.Local) { $entry.Track.FileName = $entry.Download.FileName }
+            if (-not $entry.Track.Local -or $batch.Format -notin @($null,'mp3')) { $entry.Track.FileName = $entry.Download.FileName }
             $batch.Saved++
             $batch.Index[$id] = $entry.Track.FileName
             try { Save-DownloadIndex $batch.IndexPath $batch.Index } catch {}
@@ -320,8 +341,9 @@ function Update-Playlist($batch) {
     while ($batch.Active.Count -lt 1 -and $batch.Queue.Count -gt 0) {
         $track = $batch.Queue.Dequeue()
         try {
-            $dl = if ($track.Local) { @{ Status = 'downloading'; Message = $null; Process = $null } }
-                else { Start-Download $track.Id $batch.Folder $batch.Tools.Spotdl $batch.Tools.FFmpeg $batch.Tools.JobsDir $track.FileName }
+            $dl = if ($track.Local -and $batch.Format -in @($null,'mp3')) { @{ Status = 'downloading'; Message = $null; Process = $null } }
+                elseif ($track.Local) { Start-LocalConversion $track $batch }
+                else { Start-Download $track.Id $batch.Folder $batch.Tools.Spotdl $batch.Tools.FFmpeg $batch.Tools.JobsDir $track.FileName $batch.Format }
             $batch.Active[$track.Id] = @{ Download = $dl; Track = $track }
         } catch { $batch.Failed.Add(@{ id = $track.Id; name = $track.Name; message = $_.Exception.Message }) | Out-Null }
     }
@@ -502,12 +524,14 @@ try { while ($listener.IsListening) {
             }
 
             try {
+            $format = if ($ctx.Request.QueryString['format']) { $ctx.Request.QueryString['format'] } else { 'mp3' }
+            if ($format -notin @('mp3','wav','ogg','flac')) { throw 'Invalid audio format.' }
             $downloadFolder = Select-DownloadFolder
             if (-not $downloadFolder) { Respond $ctx '{"status":"no_folder"}'; break }
             $tools = Get-Downloader
             $script:singleOrder++
             $script:downloads[$trackId] = @{ Id = $trackId; Folder = $downloadFolder; Tools = $tools; Order = $script:singleOrder;
-                Status = 'queued'; Message = $null; CompletedAt = $null; Process = $null }
+                Format = $format; Status = 'queued'; Message = $null; CompletedAt = $null; Process = $null }
             Update-Singles
 
             Respond $ctx (@{ status = 'started'; jobStatus = $script:downloads[$trackId].Status } | ConvertTo-Json -Compress)

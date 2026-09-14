@@ -20,8 +20,8 @@
                     onFocus: function(e) { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
                     onBlur: function(e) { e.currentTarget.style.background = 'transparent'; },
                     onClick: function() {
-                        options.onClick(context);
                         closeDownloadMenu();
+                        options.onClick(context);
                     }
                 }, Spicetify.React.createElement('span', { style: {display:'flex',width:'16px',height:'16px',flexShrink:0},
                     dangerouslySetInnerHTML: { __html: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">' + Spicetify.SVGIcons.download + '</svg>' } }),
@@ -29,6 +29,24 @@
         };
         var element = Spicetify.React.createElement(component);
         this.register = function() { Spicetify.ContextMenuV2.registerItem(element, options.shouldAdd); };
+    }
+
+    function chooseFormat(start) {
+        const root=document.createElement('div');root.id='sr-file-format';
+        root.innerHTML='<style>.spicetify-popup-container:has(#sr-file-format){width:420px!important;max-width:calc(100vw - 48px)!important}#sr-file-format{display:flex;flex-direction:column;gap:20px;color:var(--spice-text);font-size:14px}#sr-file-format p{margin:0;color:var(--spice-subtext)}.sr-format-options{display:flex;gap:8px;flex-wrap:wrap}#sr-file-format button{font:inherit;border-radius:8px;padding:9px 14px;border:1px solid rgba(255,255,255,.14);background:transparent;color:var(--spice-text);cursor:pointer}#sr-file-format button:hover{background:rgba(255,255,255,.08)}#sr-file-format button:focus-visible{outline:2px solid var(--spice-button);outline-offset:2px}#sr-file-format button[aria-checked=true]{background:rgba(255,255,255,.12);border-color:var(--spice-text)}.sr-format-actions{display:flex;gap:8px;justify-content:flex-end}#sr-file-format .sr-format-primary{background:var(--spice-button);color:var(--spice-main);border:0;font-weight:700}</style><p>Choose your audio format.</p>';
+        const options=document.createElement('div');options.className='sr-format-options';options.setAttribute('role','radiogroup');options.setAttribute('aria-label','Audio format');
+        let format='mp3';
+        for(const name of ['mp3','wav','ogg','flac']) {
+            const button=document.createElement('button');button.type='button';button.textContent=name.toUpperCase();button.setAttribute('role','radio');button.setAttribute('aria-checked',String(name===format));
+            button.onclick=()=>{format=name;for(const item of options.children)item.setAttribute('aria-checked',String(item===button));};
+            button.onkeydown=event=>{if(!['ArrowRight','ArrowLeft'].includes(event.key))return;event.preventDefault();const items=[...options.children];const next=items[(items.indexOf(button)+(event.key==='ArrowRight'?1:items.length-1))%items.length];next.click();next.focus();};
+            options.append(button);
+        }
+        const actions=document.createElement('div');actions.className='sr-format-actions';
+        const cancel=document.createElement('button');cancel.textContent='Cancel';cancel.onclick=()=>Spicetify.PopupModal.hide();
+        const download=document.createElement('button');download.textContent='Download';download.className='sr-format-primary';download.onclick=()=>{Spicetify.PopupModal.hide();start(format);};
+        actions.append(cancel,download);root.append(options,actions);
+        Spicetify.PopupModal.display({title:'Download as file',content:root,isLarge:false});
     }
 
     var noticeTimer;
@@ -407,7 +425,7 @@
         return Array.from(new Set(names)).join(', ');
     }
 
-    async function startSong(track, context) {
+    async function startSong(track, context, format = 'mp3') {
         var trackId = track.id;
         var prior = activeDownloads.get(trackId);
         if (prior && pendingSong(prior)) { showNotif(); return; }
@@ -448,7 +466,7 @@
 
         var data;
         try {
-            data = await helperRequest('download?id=' + encodeURIComponent(trackId), 180000);
+            data = await helperRequest('download?id=' + encodeURIComponent(trackId) + '&format=' + format, 180000);
         } catch (e) {
             showDownloadNotice('Could not reach the download helper. Please try again.', true);
             return;
@@ -510,11 +528,11 @@
 
 
     var menuItem = new DownloadMenuItem({
-        children: 'Download as MP3',
+        children: 'Download as file',
         leadingIcon: 'download',
         onClick: function(context) {
             var track = trackForMenu(context.props, context.target);
-            if (track) startSong(track, context);
+            if (track) chooseFormat(format => startSong(track, context, format));
             else showDownloadNotice('Could not identify the song to download.', true);
         },
         shouldAdd: function(props, trigger, target) { return !!trackForMenu(props, target); }
@@ -616,7 +634,7 @@
         } finally { clearTimeout(timer); }
     }
 
-    async function startCollection(collection) {
+    async function startCollection(collection, format = 'mp3') {
         var jobId = collection.type === 'album' ? 'album-' + collection.id : collection.id;
         var prior = collectionDownloads.get(jobId);
         if (prior && !prior.finished) return;
@@ -710,7 +728,7 @@
             }
             if (state.cancelled) { state.finish('Cancelled.'); return; }
             if (!tracks.length) { state.finish('No downloadable songs in this ' + state.type + '.', true); return; }
-            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks, folderToken: selection.token });
+            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks, format: format, folderToken: selection.token });
             if (data.status === 'no_folder' || data.status === 'cancelled') { state.finish('Cancelled.'); return; }
             closeDownloadMenu();
             if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the download. Update the download helper and try again.');
@@ -769,12 +787,12 @@
     }
 
     new DownloadMenuItem({
-        children: 'Download as MP3s',
+        children: 'Download as file',
         leadingIcon: 'download',
         shouldAdd: function(props) { return !!collectionForMenu(props); },
         onClick: function(context) {
             var playlist = collectionForMenu(context.props);
-            if (playlist) startCollection(playlist);
+            if (playlist) chooseFormat(format => startCollection(playlist, format));
         }
     }).register();
 

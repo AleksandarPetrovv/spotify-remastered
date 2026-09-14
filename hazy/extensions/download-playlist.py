@@ -52,9 +52,9 @@ def filename_key(name):
     return unicodedata.normalize('NFD', name).casefold()
 
 
-def reserve_name(folder, base, identifier, index, reserved):
+def reserve_name(folder, base, identifier, index, reserved, audio_format='mp3'):
     indexed = index.get(identifier)
-    name = indexed or base + '.mp3'
+    name = indexed or base + '.' + audio_format
     suffix = 2
     while True:
         key = filename_key(name)
@@ -64,7 +64,7 @@ def reserve_name(folder, base, identifier, index, reserved):
         if reserved.get(key, identifier) == identifier and (not target.exists() and not target.is_symlink() or reusable):
             reserved[key] = identifier
             return target, reusable
-        name = base + ' (' + str(suffix) + ').mp3'
+        name = base + ' (' + str(suffix) + ').' + audio_format
         suffix += 1
 
 
@@ -81,7 +81,7 @@ def place_audio(source, target, remove_source=True):
                 source.unlink()
             return target
         except FileExistsError:
-            target = target.with_name(base + ' (' + str(suffix) + ').mp3')
+            target = target.with_name(base + ' (' + str(suffix) + ')' + target.suffix)
             suffix += 1
         except Exception:
             if created:
@@ -148,17 +148,20 @@ def cleanup_jobs():
 
 def worker(job):
     config = json.loads((job / 'request.json').read_text())
+    audio_format = config.get('format', 'mp3')
+    if audio_format not in ('mp3','wav','ogg','flac'):
+        raise ValueError('Invalid audio format.')
     state = {'status': 'downloading', 'saved': 0, 'skipped': 0, 'failed': [],
              'total': len(config['tracks']), 'folder': config['folder'], 'current': []}
     folder = Path(config['folder'])
     queue = []
     seen = set()
     active = []
-    index_path = JOBS / (hashlib.sha256(str(folder).encode('utf-8')).hexdigest() + '.files.json')
+    index_path = JOBS / (hashlib.sha256((str(folder) + ('' if audio_format == 'mp3' else ':' + audio_format)).encode('utf-8')).hexdigest() + '.files.json')
     try:
         index = json.loads(index_path.read_text())
         index = {key: value for key, value in index.items()
-                 if isinstance(value, str) and value and Path(value).name == value and Path(value).suffix.lower() == '.mp3'}
+                 if isinstance(value, str) and value and Path(value).name == value and Path(value).suffix.lower() == '.' + audio_format}
     except (OSError, ValueError, AttributeError):
         index = {}
     reserved = {}
@@ -171,13 +174,13 @@ def worker(job):
             if track['id'] in seen:
                 state['skipped'] += 1
             else:
-                target, reusable = reserve_name(folder, base, track['id'], index, reserved)
+                target, reusable = reserve_name(folder, base, track['id'], index, reserved, audio_format)
                 if reusable:
                     state['skipped'] += 1
                 else:
                     queue.append((track, target))
             seen.add(track['id'])
-        ffmpeg = managed_ffmpeg() if any(not track['id'].startswith('spotify:local:') for track, target in queue) else None
+        ffmpeg = managed_ffmpeg() if audio_format != 'mp3' or any(not track['id'].startswith('spotify:local:') for track, target in queue) else None
         while queue or active:
             if (job / 'cancel').exists():
                 state['status'] = 'cancelled'
@@ -194,7 +197,17 @@ def worker(job):
                         source = root / name
                         if not name or Path(name).name != name or source.suffix.lower() != '.mp3' or source.is_symlink() or source.resolve().parent != root.resolve() or not source.is_file() or not source.stat().st_size:
                             raise RuntimeError('The song could not be uniquely found in local songs.')
-                        target = place_audio(source, target, remove_source=False)
+                        if audio_format == 'mp3':
+                            target = place_audio(source, target, remove_source=False)
+                        else:
+                            work = job / uuid.uuid4().hex
+                            work.mkdir()
+                            output = work / ('audio.' + audio_format)
+                            codec = {'wav':'pcm_s16le','ogg':'libvorbis','flac':'flac'}[audio_format]
+                            with (work / 'stderr.log').open('wb') as err:
+                                process = subprocess.Popen([ffmpeg,'-nostdin','-i',str(source),'-vn','-map_metadata','0','-c:a',codec,str(output)], stdout=subprocess.DEVNULL, stderr=err,start_new_session=True)
+                            active.append((track,target,work,process,time.monotonic()))
+                            continue
                         state['saved'] += 1
                         index[track['id']] = target.name
                         try:
@@ -213,7 +226,7 @@ def worker(job):
                         command = [str(runner_python), str(runner), '--client'] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'dependencies/spotdl')]
                         process = subprocess.Popen(command + ['download',
                             'https://open.spotify.com/track/' + track['id'], '--output', '{title}.{output-ext}',
-                            '--ffmpeg', ffmpeg, '--format', 'mp3', '--audio', 'youtube-music', 'youtube',
+                            '--ffmpeg', ffmpeg, '--format', audio_format, '--audio', 'youtube-music', 'youtube',
                             '--max-retries', '2'], cwd=work, stdout=out, stderr=err, start_new_session=True)
                     active.append((track, target, work, process, time.monotonic()))
                 except Exception as error:
@@ -224,7 +237,7 @@ def worker(job):
                 if (work / 'worker-started').exists():
                     started = (work / 'worker-started').stat().st_mtime
                     elapsed = time.time() - started
-                elif (ROOT / 'dependencies/downloader/bin/python').is_file() and (ROOT / 'scripts/download-runner.py').is_file():
+                elif not track['id'].startswith('spotify:local:') and (ROOT / 'dependencies/downloader/bin/python').is_file() and (ROOT / 'scripts/download-runner.py').is_file():
                     elapsed = 0
                 else:
                     elapsed = time.monotonic() - started
@@ -234,7 +247,7 @@ def worker(job):
                     if code is None:
                         terminate(process)
                         raise RuntimeError('Download timed out after 10 minutes.')
-                    files = [file for file in work.glob('*.mp3') if file.stat().st_size > 0]
+                    files = [file for file in work.glob('*.' + audio_format) if file.stat().st_size > 0]
                     if code != 0 or len(files) != 1:
                         raise RuntimeError('The song could not be downloaded. Details are in the download logs.')
                     if config.get('single'):
@@ -297,7 +310,7 @@ def request(route, query, length):
     playlist_id = parameters.get('id', [''])[0]
     body = None
     if route == '/download':
-        body = {'id': playlist_id, 'tracks': [{'id': playlist_id, 'name': playlist_id}]}
+        body = {'id': playlist_id, 'format':parameters.get('format',['mp3'])[0], 'tracks': [{'id': playlist_id, 'name': playlist_id}]}
     if route == '/playlist':
         if length <= 0 or length > 2097152:
             raise ValueError('Invalid playlist request.')
@@ -343,6 +356,9 @@ def request(route, query, length):
         return {'status': 'cancelled'}
     if state['status'] == 'downloading':
         return {'status': 'already_downloading'}
+    audio_format=body.get('format','mp3')
+    if audio_format not in ('mp3','wav','ogg','flac'):
+        raise ValueError('Invalid audio format.')
     tracks = body.get('tracks', [])
     if not tracks or len(tracks) > 10000 or any(not re.fullmatch(r'[a-zA-Z0-9]{22}|spotify:local:.{1,4082}', track.get('id', '')) for track in tracks):
         raise ValueError('Invalid or empty playlist.')
@@ -364,7 +380,7 @@ def request(route, query, length):
     folder.mkdir(exist_ok=True)
     job = JOBS / uuid.uuid4().hex
     job.mkdir()
-    write_json(job / 'request.json', {'tracks': tracks, 'folder': str(folder), 'name': body.get('name', 'Playlist'), 'single': single})
+    write_json(job / 'request.json', {'tracks': tracks, 'folder': str(folder), 'name': body.get('name', 'Playlist'), 'single': single, 'format':audio_format})
     write_json(job / 'status.json', {'status': 'downloading', 'saved': 0, 'skipped': 0, 'failed': [],
                                    'total': len(tracks), 'folder': str(folder), 'current': []})
     with (job / 'worker.log').open('wb') as log:

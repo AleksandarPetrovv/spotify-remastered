@@ -29,10 +29,18 @@ class DownloadSafety(unittest.TestCase):
         self.module.JOBS = self.root / 'jobs'
         self.calls = []
 
-    def run_worker(self, tracks, single=False, before_output=None):
+    def test_formats_keep_separate_files_and_reuse(self):
+        track={'id':'A'*22,'name':'song'}
+        for audio_format in ('mp3','wav','ogg','flac'):
+            self.run_worker([track], audio_format=audio_format)
+            self.assertTrue((self.folder / ('song.'+audio_format)).is_file())
+            self.run_worker([track], audio_format=audio_format)
+        self.assertEqual(len(self.calls),4)
+
+    def run_worker(self, tracks, single=False, before_output=None, audio_format='mp3'):
         job = self.module.JOBS / ('job-' + str(len(list(self.module.JOBS.glob('*')))))
         job.mkdir(parents=True)
-        (job / 'request.json').write_text(json.dumps({'tracks': tracks, 'folder': str(self.folder), 'single': single}))
+        (job / 'request.json').write_text(json.dumps({'tracks': tracks, 'folder': str(self.folder), 'single': single, 'format':audio_format}))
         calls = self.calls
         class FakeProcess:
             def __init__(self, args, **kwargs):
@@ -40,7 +48,7 @@ class DownloadSafety(unittest.TestCase):
                 calls.append(identifier)
                 if before_output:
                     before_output()
-                (Path(kwargs['cwd']) / 'song.mp3').write_bytes(identifier.encode())
+                (Path(kwargs['cwd']) / ('song.' + args[args.index('--format')+1])).write_bytes(identifier.encode())
             def poll(self):
                 return 0
         with patch.object(self.module, 'managed_ffmpeg', return_value='fake-ffmpeg'), \

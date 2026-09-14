@@ -55,7 +55,17 @@ try {
     Save-DownloadIndex $caseBatch.IndexPath @{ $identifier = 'Song.mp3'; ('D' * 22) = 'song.mp3' }
     $ambiguous = Start-Playlist $caseBody $output @{ JobsDir = $logs }
     Assert ($ambiguous.Skipped -eq 0 -and $ambiguous.Queue.Count -eq 2) 'ambiguous legacy index incorrectly identified existing audio'
-    Write-Output 'windows download safety: 5 scenarios passed'
+    foreach ($format in @('mp3','wav','ogg','flac')) {
+        $formatBody = @{id='E'*22;name='formats';format=$format;tracks=@(@{id=$identifier;name='song'})}
+        $formatBatch = Start-Playlist $formatBody $output @{JobsDir=$logs}
+        $track = $formatBatch.Queue.Peek()
+        Assert ([IO.Path]::GetExtension($track.FileName) -eq ('.'+$format)) 'incorrect format extension'
+        [IO.File]::WriteAllText((Join-Path $formatBatch.Folder $track.FileName),'saved audio')
+        Save-DownloadIndex $formatBatch.IndexPath @{ $identifier=$track.FileName }
+        $repeat = Start-Playlist $formatBody $output @{JobsDir=$logs}
+        Assert ($repeat.Skipped -eq 1) 'repeat format download was not skipped'
+    }
+    Write-Output 'windows download safety: existing safety and four format scenarios passed'
 } finally {
     if ([IO.Path]::GetFullPath($testRoot) -ne $expectedRoot -or -not $testRoot.StartsWith([IO.Path]::GetFullPath([IO.Path]::GetTempPath()), [StringComparison]::OrdinalIgnoreCase)) { throw 'invalid test cleanup path' }
     Remove-Item -LiteralPath $testRoot -Recurse -Force

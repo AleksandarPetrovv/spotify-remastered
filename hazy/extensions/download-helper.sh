@@ -1,14 +1,28 @@
 #!/bin/bash
 read -r request_line
+content_length=0
 while IFS= read -r line; do
     line="${line%$'\r'}"
     [ -z "$line" ] && break
+    case "$line" in
+        [Cc]ontent-[Ll]ength:*) content_length=$(echo "$line" | awk '{print $2}') ;;
+    esac
 done
 
 path=$(echo "$request_line" | awk '{print $2}')
 route=$(echo "$path" | cut -d'?' -f1)
 query=$(echo "$path" | cut -d'?' -s -f2)
 trackId=$(echo "$query" | sed -n 's/.*id=\([^& ]*\).*/\1/p')
+
+if [[ "$route" == /playlist* ]] || [[ "$request_line" == OPTIONS* ]] || [[ "$route" == /open-folder && "$query" == *kind=playlist* ]]; then
+    if command -v python3 >/dev/null 2>&1; then
+        [[ "$request_line" == OPTIONS* ]] && route=OPTIONS
+        exec python3 "$HOME/.local/share/spotify-remastered/download-playlist.py" "$route" "$query" "$content_length"
+    fi
+    body='{"status":"error","message":"Python 3 is required for playlist downloads. Please install Python 3."}'
+    printf 'HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' "${#body}" "$body"
+    exit 0
+fi
 
 respond() {
     local body="$1"
@@ -18,7 +32,7 @@ respond() {
 
 case "$route" in
     /download)
-        if [ -z "$trackId" ]; then
+        if [[ ! "$trackId" =~ ^[a-zA-Z0-9]{22}$ ]]; then
             respond '{"status":"error"}'
             exit 0
         fi

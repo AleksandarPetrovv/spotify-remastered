@@ -31,14 +31,16 @@ cleanup() {
 trap cleanup EXIT
 
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
-STATUS_FILE="$CUSTOM_DIR/spicetify-status.txt"
+STATUS_FILE="$CUSTOM_DIR/data/spicetify-status.txt"
+[ ! -f "$STATUS_FILE" ] && STATUS_FILE="$CUSTOM_DIR/spicetify-status.txt"
 FULL_WIPE=false
 if [ -f "$STATUS_FILE" ]; then
     if grep -qi 'spicetify-existed-before=false' "$STATUS_FILE"; then
         FULL_WIPE=true
     fi
 fi
-PREV_THEME_FILE="$CUSTOM_DIR/prev-theme.txt"
+PREV_THEME_FILE="$CUSTOM_DIR/data/prev-theme.txt"
+[ ! -f "$PREV_THEME_FILE" ] && PREV_THEME_FILE="$CUSTOM_DIR/prev-theme.txt"
 PREV_THEME=""
 if [ -f "$PREV_THEME_FILE" ]; then
     PREV_THEME=$(cat "$PREV_THEME_FILE" | xargs)
@@ -48,6 +50,9 @@ PLIST_NAME="com.spotify-remastered.updater"
 PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
 launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null || true
 rm -f "$PLIST_PATH"
+DL_PLIST_NAME="com.spotify-remastered.download-helper"
+launchctl bootout "gui/$(id -u)/$DL_PLIST_NAME" 2>/dev/null || true
+rm -f "$HOME/Library/LaunchAgents/$DL_PLIST_NAME.plist"
 rm -rf "$CUSTOM_DIR"
 
 if command -v spicetify &>/dev/null; then

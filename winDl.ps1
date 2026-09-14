@@ -67,7 +67,8 @@ $prevTheme = (spicetify config current_theme 2>$null)
 if ($prevTheme) { $prevTheme = $prevTheme.Trim() }
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
 if (-not (Test-Path $customDir)) { New-Item -ItemType Directory -Path $customDir | Out-Null }
-$prevThemeFile = Join-Path $customDir "prev-theme.txt"
+foreach ($folder in @('dependencies', 'scripts', 'data', 'cache')) { New-Item -ItemType Directory -Force -Path (Join-Path $customDir $folder) | Out-Null }
+$prevThemeFile = Join-Path $customDir "data\prev-theme.txt"
 if ($prevTheme -and $prevTheme -ne "Hazy" -and -not (Test-Path $prevThemeFile)) { Set-Content $prevThemeFile -Value $prevTheme -Encoding UTF8 }
 
 @"
@@ -76,30 +77,53 @@ spicetify-existed-before=$spicetifyExistedBefore
 this file tells the uninstall script whether spicetify was already on your pc before you installed spotify remastered.
 if the value above is false, the uninstall script will fully remove spicetify from your system.
 if the value above is true, the uninstall script will only remove the hazy theme and lyrics-plus custom app, keeping your spicetify installation intact.
-"@ | Set-Content (Join-Path $customDir "spicetify-status.txt") -Encoding UTF8
+"@ | Set-Content (Join-Path $customDir "data\spicetify-status.txt") -Encoding UTF8
 
 @"
-this folder is used by spotify remastered. please do not delete it or any of its files while spotify remastered is installed.
+this folder is used by spotify remastered. please do not delete it or its required files while spotify remastered is installed.
 
-here is what each file does:
+here is what each file and folder does (optional items may not be present):
 
-- spotify-remastered-updater.ps1: runs on startup to keep spicetify applied after spotify updates itself.
-- spicetify-status.txt: stores whether spicetify was already on your pc before you installed spotify remastered. the uninstall script reads this to know whether to fully remove spicetify or just remove the theme and custom app.
-- prev-theme.txt: if this file exists it stores the name of your previous spicetify theme so it can be restored when you uninstall spotify remastered.
-- download-helper.ps1: background TCP listener that handles song downloads from the Spicetify download extension.
+- dependencies: download tools and their runtime dependencies.
+- scripts: background helpers and their launchers.
+- data: installer records needed to restore your previous setup.
+- cache: temporary download jobs, troubleshooting logs and saved-file indexes.
+- dependencies/spotdl.exe: standalone song downloader used when the python downloader is unavailable.
+- dependencies/ffmpeg.exe: converts audio to mp3. an existing compatible copy is reused; a download is needed only when none is available.
+- dependencies/downloader: optional python runtime and download dependencies, including the working alternate-upload fallback. keep this folder when present.
+- scripts/download-helper.ps1: background download listener on port 27382; handles songs, playlists and albums, progress, cancellation and destination folders.
+- scripts/download-helper.vbs: launches the download helper without opening a terminal. a startup-folder copy launches it when you sign in.
+- scripts/download-runner.py: adds alternate-upload fallback to the python song downloader.
+- scripts/link-helper.ps1: downloads youtube/soundcloud audio into Local Songs, tracks import jobs and reports source errors.
+- scripts/setup-link-tools.ps1: finds compatible installed download tools and only downloads missing tools into dependencies.
+- dependencies/yt-dlp.exe: optional managed link downloader. an existing compatible yt-dlp installation is used instead when available.
+- dependencies/deno.exe: optional javascript runtime for youtube extraction, installed only when no compatible deno or node installation is available.
+- data/download-tools.json: records the downloader and javascript runtime selected on this computer.
+- data/import-index: links imported source urls to their saved mp3 files and metadata, so the same link can reuse its download. keep this folder.
+- cache/import-logs: temporary link import jobs and troubleshooting logs, limited to 20 inactive jobs and 7 days. these are not your saved songs.
+- scripts/spotify-remastered-updater.ps1: reapplies spicetify after spotify updates.
+- scripts/spotify-remastered-updater.vbs: launches the updater without opening a terminal; also has a startup-folder copy.
+- data/spicetify-status.txt: records whether spicetify was installed before spotify remastered, so uninstall can preserve an existing installation.
+- data/prev-theme.txt: optional record of your previous theme for restoration during uninstall.
+- cache/download-logs: temporary jobs and error logs, limited to 20 inactive jobs and 7 days. its playlist-index subfolder records saved songs for repeat-download skipping; keep that index.
+- Local Songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
 - about-this-folder.txt: this file.
 "@ | Set-Content (Join-Path $customDir "about-this-folder.txt") -Encoding UTF8
 
 $spotdlRelease = Invoke-RestMethod -Uri "https://api.github.com/repos/spotDL/spotify-downloader/releases/latest"
 $spotdlAsset = $spotdlRelease.assets | Where-Object { $_.name -like "*win32*" } | Select-Object -First 1
 if ($spotdlAsset) {
-    Invoke-WebRequest -Uri $spotdlAsset.browser_download_url -OutFile (Join-Path $customDir "spotdl.exe")
+    Invoke-WebRequest -Uri $spotdlAsset.browser_download_url -OutFile (Join-Path $customDir "dependencies\spotdl.exe")
 }
 
-Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $customDir "download-helper.ps1") -Force
-Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "download-runner.py") -Force
+Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $customDir "scripts\download-helper.ps1") -Force
+Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "scripts\download-runner.py") -Force
+. (Join-Path $customDir 'scripts\download-helper.ps1') -NoListen
+Get-Downloader | Out-Null
+foreach ($file in @('link-helper.ps1','setup-link-tools.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
+& (Join-Path $customDir 'scripts\setup-link-tools.ps1')
 
-$dlHelperScript = Join-Path $customDir "download-helper.ps1"
+$dlHelperScript = Join-Path $customDir "scripts\download-helper.ps1"
 $pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
 if ($pwshCmd) { $dlPwsh = $pwshCmd.Source }
 else {
@@ -108,7 +132,7 @@ else {
 }
 $q = '""'
 $dlVbsContent = 'CreateObject("WScript.Shell").Run "' + $q + $dlPwsh + $q + ' -ExecutionPolicy Bypass -STA -File ' + $q + $dlHelperScript + $q + '", 0, False'
-$dlVbs = Join-Path $customDir "download-helper.vbs"
+$dlVbs = Join-Path $customDir "scripts\download-helper.vbs"
 $dlVbsContent | Set-Content $dlVbs -Encoding ASCII
 $dlStartupVbs = Join-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup" "Spotify Remastered Download Helper.vbs"
 Copy-Item $dlVbs $dlStartupVbs -Force
@@ -133,8 +157,8 @@ spicetify backup apply
 spicetify apply
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-$helperScript = Join-Path $customDir "spotify-remastered-updater.ps1"
-$vbsLauncher = Join-Path $customDir "spotify-remastered-updater.vbs"
+$helperScript = Join-Path $customDir "scripts\spotify-remastered-updater.ps1"
+$vbsLauncher = Join-Path $customDir "scripts\spotify-remastered-updater.vbs"
 $startupVbs = Join-Path $startupDir "Spotify Remastered Updater.vbs"
 $oldShortcut = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue

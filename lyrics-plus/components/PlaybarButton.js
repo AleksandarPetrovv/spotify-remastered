@@ -34,12 +34,42 @@
 	);
 	window.__lyricsPlusPlaybarButton = button;
 	button.element?.classList.add("lp-playbar-lyrics");
+	const matchNativeControl = () => {
+		const native = document.querySelector('.main-nowPlayingBar-right button[data-restore-focus-key="queue"]');
+		if (!native || !button.element?.isConnected) return false;
+		button.element.classList.add(...native.classList);
+		button.element.setAttribute("aria-label", "Lyrics");
+		if (!button.element.closest('.lp-native-tooltip')) {
+			button.tippy?.destroy();
+			button.element.removeAttribute('title');
+			const host = document.createElement('span');
+			host.className = 'lp-native-tooltip';
+			host.style.display = 'inline-flex';
+			button.element.before(host);
+			function Tooltip() {
+				const [visible, setVisible] = Spicetify.React.useState(false);
+				Spicetify.React.useLayoutEffect(() => {host.firstElementChild?.appendChild(button.element);}, []);
+				return Spicetify.React.createElement(Spicetify.ReactComponent.TooltipWrapper,
+					{label:'Lyrics',placement:'top',showDelay:200,isOpen:visible},
+					Spicetify.React.createElement('span', {
+						style:{display:'inline-flex'},
+						onMouseEnter:()=>setVisible(true),onMouseLeave:()=>setVisible(false),
+						onFocus:()=>setVisible(true),onBlur:()=>setVisible(false),onClick:()=>setVisible(false)
+					}));
+			}
+			Spicetify.ReactDOM.createRoot(host).render(Spicetify.React.createElement(Tooltip));
+		}
+		return true;
+	};
+	if (!matchNativeControl()) {
+		const interval = setInterval(() => { if (matchNativeControl()) clearInterval(interval); }, 300);
+		setTimeout(() => clearInterval(interval), 15000);
+	}
 	if (!document.getElementById("lp-playbar-compat")) {
 		const style = document.createElement("style");
 		style.id = "lp-playbar-compat";
 		style.textContent = `
-            .lp-playbar-lyrics { display:flex!important;align-items:center;justify-content:center;width:32px;height:32px;padding:8px!important;border:0!important;background:none!important;color:#b3b3b3;cursor:pointer;box-sizing:border-box; }
-            .lp-playbar-lyrics:hover { color:#fff; }
+            .lp-playbar-lyrics { display:flex!important;align-items:center;justify-content:center;width:32px;height:32px;padding:8px!important;border:0!important;cursor:pointer;box-sizing:border-box; }
             .lp-playbar-lyrics.main-genericButton-buttonActive { color:var(--spice-button); }
             .lp-playbar-lyrics span { display:flex!important;align-items:center;justify-content:center; }
             .lp-playbar-lyrics svg { width:16px;height:16px;stroke:none;fill:currentColor; }

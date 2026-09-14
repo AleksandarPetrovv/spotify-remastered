@@ -8,6 +8,30 @@
         await new Promise(function(r) { setTimeout(r, 100); });
     }
 
+    function DownloadMenuItem(options) {
+        var component = function() {
+            var context = Spicetify.React.useContext(Spicetify.ContextMenuV2._context) || {};
+            return Spicetify.React.createElement('li', { role: 'presentation' },
+                Spicetify.React.createElement('button', {
+                    role: 'menuitem', tabIndex: -1,
+                    style: { display: 'flex', alignItems: 'center', gap: '12px', width: '100%', minHeight: '40px', padding: '8px 8px 8px 12px',
+                        border: 0, borderRadius: '3px', background: 'transparent', color: 'rgba(255,255,255,.9)', fontFamily: 'inherit', fontSize: '14px', fontWeight: 400, lineHeight: 'normal', textAlign: 'left', cursor: 'pointer' },
+                    onMouseEnter: function(e) { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
+                    onMouseLeave: function(e) { e.currentTarget.style.background = 'transparent'; },
+                    onFocus: function(e) { e.currentTarget.style.background = 'rgba(255,255,255,.1)'; },
+                    onBlur: function(e) { e.currentTarget.style.background = 'transparent'; },
+                    onClick: function() {
+                        options.onClick(context);
+                        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', bubbles: true }));
+                    }
+                }, Spicetify.React.createElement('span', { style: {display:'flex',width:'16px',height:'16px',flexShrink:0},
+                    dangerouslySetInnerHTML: { __html: '<svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">' + Spicetify.SVGIcons.download + '</svg>' } }),
+                    Spicetify.React.createElement('span', { className: 'encore-text-body-small', style: {fontSize:'14px',fontWeight:400,lineHeight:'normal'} }, options.children)));
+        };
+        var element = Spicetify.React.createElement(component);
+        this.register = function() { Spicetify.ContextMenuV2.registerItem(element, options.shouldAdd); };
+    }
+
     var activeDownloads = new Map();
     var notifEl = null;
     var notifTimeout = null;
@@ -387,8 +411,8 @@
     }
 
 
-    var menuItem = new Spicetify.ContextMenuV2.Item({
-        children: 'Download',
+    var menuItem = new DownloadMenuItem({
+        children: 'Download as MP3',
         leadingIcon: 'download',
         onClick: function(context) {
             var track = trackForMenu(context.props, context.target);
@@ -617,7 +641,7 @@
         } catch (e) { state.finish(e.message || 'Could not download the ' + state.type + '.', true); }
     }
 
-    new Spicetify.ContextMenuV2.Item({
+    new DownloadMenuItem({
         children: 'Download as MP3s',
         leadingIcon: 'download',
         shouldAdd: function(props) { return !!collectionForMenu(props); },

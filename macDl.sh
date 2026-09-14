@@ -76,33 +76,50 @@ cp "$REPO/hazy/extensions/download.js" "$EXTENSIONS_DIR/download.js"
 
 PREV_THEME=$(spicetify config current_theme 2>/dev/null | xargs)
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
-mkdir -p "$CUSTOM_DIR"
-PREV_THEME_FILE="$CUSTOM_DIR/prev-theme.txt"
+mkdir -p "$CUSTOM_DIR" "$CUSTOM_DIR/dependencies" "$CUSTOM_DIR/scripts" "$CUSTOM_DIR/data" "$CUSTOM_DIR/cache"
+PREV_THEME_FILE="$CUSTOM_DIR/data/prev-theme.txt"
 if [ -n "$PREV_THEME" ] && [ "$PREV_THEME" != "Hazy" ] && [ ! -f "$PREV_THEME_FILE" ]; then
     echo "$PREV_THEME" > "$PREV_THEME_FILE"
 fi
 
-cat > "$CUSTOM_DIR/spicetify-status.txt" << 'STATUSEOF'
+cat > "$CUSTOM_DIR/data/spicetify-status.txt" << 'STATUSEOF'
 spicetify-existed-before=PLACEHOLDER
 
 this file tells the uninstall script whether spicetify was already on your mac before you installed spotify remastered.
 if the value above is false, the uninstall script will fully remove spicetify from your system.
 if the value above is true, the uninstall script will only remove the hazy theme and lyrics-plus custom app, keeping your spicetify installation intact.
 STATUSEOF
-sed -i '' "s/spicetify-existed-before=PLACEHOLDER/spicetify-existed-before=$SPICETIFY_EXISTED_BEFORE/" "$CUSTOM_DIR/spicetify-status.txt"
+sed -i '' "s/spicetify-existed-before=PLACEHOLDER/spicetify-existed-before=$SPICETIFY_EXISTED_BEFORE/" "$CUSTOM_DIR/data/spicetify-status.txt"
 
 cat > "$CUSTOM_DIR/about-this-folder.txt" << 'EOF'
-this folder is used by spotify remastered. please do not delete it or any of its files while spotify remastered is installed.
+this folder is used by spotify remastered. please do not delete it or its required files while spotify remastered is installed.
 
-here is what each file does:
+here is what each file and folder does (optional items may not be present):
 
-- com.spotify-remastered.updater.plist: launchd agent that runs on login to keep spicetify applied after spotify updates itself.
-- spotify-remastered-updater.sh: the actual updater script run by the launchd agent.
-- com.spotify-remastered.download-helper.plist: launchd agent that listens for song download requests from spotify remastered.
-- download-helper.sh: the script that handles folder selection and runs spotdl when you download a song.
-- spotdl: the tool used to download songs from spotify.
-- spicetify-status.txt: stores whether spicetify was already on your mac before you installed spotify remastered. the uninstall script reads this to know whether to fully remove spicetify or just remove the theme and custom app.
-- prev-theme.txt: if this file exists it stores the name of your previous spicetify theme so it can be restored when you uninstall spotify remastered.
+- dependencies: download tools and their runtime dependencies.
+- scripts: background helpers and their launchers.
+- data: installer records needed to restore your previous setup.
+- cache: temporary download jobs, troubleshooting logs and saved-file indexes.
+- dependencies/spotdl: standalone song downloader.
+- dependencies/ffmpeg: converts audio to mp3; copied from an existing compatible installation or downloaded if missing.
+- dependencies/downloader: optional python downloader environment; required for the enhanced download fallback when present.
+- scripts/download-helper.sh: handles download requests on port 27382 and song folder selection.
+- scripts/download-playlist.py: handles playlist/album jobs, progress, cancellation and saved-file verification; requires python 3.
+- scripts/download-runner.py: adds alternate-upload fallback when the python downloader is installed.
+- scripts/link-helper.py: downloads youtube/soundcloud audio into Local Songs and tracks import jobs; requires python 3.
+- scripts/setup-link-tools.py: reuses compatible installed tools and installs missing download tools into dependencies.
+- dependencies/yt-dlp: optional managed link downloader, used when no compatible installed copy is available.
+- dependencies/deno: optional javascript runtime, used when no compatible installed deno or node is available.
+- data/download-tools.json: records the download tools selected on this computer.
+- data/import-index: records source links and their saved mp3 files so repeat imports reuse existing audio; keep it.
+- cache/import-logs: temporary link import jobs and diagnostic logs, limited to 20 inactive jobs and 7 days; saved songs are stored separately.
+- scripts/spotify-remastered-updater.sh: reapplies spicetify after spotify updates.
+- data/spicetify-status.txt: records whether spicetify existed before installation for safe uninstall.
+- data/prev-theme.txt: optional previous-theme record for restoration during uninstall.
+- cache/playlist-jobs: download job records and logs, plus indexes that detect already-saved songs. keep the saved-file indexes.
+- com.spotify-remastered.updater.plist: login agent stored in your library/launchagents folder, outside this folder.
+- com.spotify-remastered.download-helper.plist: download-listener agent stored in library/launchagents, outside this folder.
+- Local Songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
 - about-this-folder.txt: this file.
 EOF
 
@@ -126,7 +143,7 @@ spicetify apply
 
 LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
 
-HELPER_SCRIPT="$CUSTOM_DIR/spotify-remastered-updater.sh"
+HELPER_SCRIPT="$CUSTOM_DIR/scripts/spotify-remastered-updater.sh"
 cat > "$HELPER_SCRIPT" << 'HELPEREOF'
 #!/bin/bash
 sleep 10
@@ -178,17 +195,27 @@ cat > "$PLIST_PATH" << PLISTEOF
 PLISTEOF
 launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH" 2>/dev/null || true
 
+if ! command -v python3 >/dev/null 2>&1; then
+    if command -v brew >/dev/null 2>&1; then brew install python; else
+        echo 'Python 3 is required. Install Python 3 and rerun the installer.' >&2
+        exit 1
+    fi
+fi
 SPOTDL_URL=$(curl -s https://api.github.com/repos/spotDL/spotify-downloader/releases/latest \
     | python3 -c "import json,sys; [print(a['browser_download_url']) for a in json.load(sys.stdin)['assets'] if 'darwin' in a['name']]" 2>/dev/null || true)
 if [ -n "$SPOTDL_URL" ]; then
-    curl -L -o "$CUSTOM_DIR/spotdl" "$SPOTDL_URL"
-    chmod +x "$CUSTOM_DIR/spotdl"
+    curl -L -o "$CUSTOM_DIR/dependencies/spotdl" "$SPOTDL_URL"
+    chmod +x "$CUSTOM_DIR/dependencies/spotdl"
 fi
 
-cp "$REPO/hazy/extensions/download-helper.sh" "$CUSTOM_DIR/download-helper.sh"
-cp "$REPO/hazy/extensions/download-playlist.py" "$CUSTOM_DIR/download-playlist.py"
-cp "$REPO/hazy/extensions/download-runner.py" "$CUSTOM_DIR/download-runner.py"
-chmod +x "$CUSTOM_DIR/download-helper.sh"
+cp "$REPO/hazy/extensions/download-helper.sh" "$CUSTOM_DIR/scripts/download-helper.sh"
+cp "$REPO/hazy/extensions/download-playlist.py" "$CUSTOM_DIR/scripts/download-playlist.py"
+cp "$REPO/hazy/extensions/download-runner.py" "$CUSTOM_DIR/scripts/download-runner.py"
+python3 -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$CUSTOM_DIR/scripts/download-playlist.py"
+cp "$REPO/hazy/extensions/link-helper.py" "$CUSTOM_DIR/scripts/link-helper.py"
+cp "$REPO/hazy/extensions/setup-link-tools.py" "$CUSTOM_DIR/scripts/setup-link-tools.py"
+python3 "$CUSTOM_DIR/scripts/setup-link-tools.py"
+chmod +x "$CUSTOM_DIR/scripts/download-helper.sh"
 
 DL_PLIST_NAME="com.spotify-remastered.download-helper"
 DL_PLIST_PATH="$HOME/Library/LaunchAgents/$DL_PLIST_NAME.plist"
@@ -203,7 +230,7 @@ cat > "$DL_PLIST_PATH" << DLPLISTEOF
     <key>ProgramArguments</key>
     <array>
         <string>/bin/bash</string>
-        <string>$CUSTOM_DIR/download-helper.sh</string>
+        <string>$CUSTOM_DIR/scripts/download-helper.sh</string>
     </array>
     <key>inetdCompatibility</key>
     <dict>

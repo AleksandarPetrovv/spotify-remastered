@@ -14,10 +14,14 @@ route=$(echo "$path" | cut -d'?' -f1)
 query=$(echo "$path" | cut -d'?' -s -f2)
 trackId=$(echo "$query" | sed -n 's/.*id=\([^& ]*\).*/\1/p')
 
+if [[ "$route" == /link-* ]]; then
+    exec python3 "$HOME/.local/share/spotify-remastered/scripts/link-helper.py" "$route" "$query" "$content_length"
+fi
+
 if [[ "$route" == /playlist* ]] || [[ "$request_line" == OPTIONS* ]] || [[ "$route" == /open-folder && "$query" == *kind=playlist* ]]; then
     if command -v python3 >/dev/null 2>&1; then
         [[ "$request_line" == OPTIONS* ]] && route=OPTIONS
-        exec python3 "$HOME/.local/share/spotify-remastered/download-playlist.py" "$route" "$query" "$content_length"
+        exec python3 "$HOME/.local/share/spotify-remastered/scripts/download-playlist.py" "$route" "$query" "$content_length"
     fi
     body='{"status":"error","message":"Python 3 is required for playlist downloads. Please install Python 3."}'
     printf 'HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Type: application/json\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s' "${#body}" "$body"
@@ -65,17 +69,32 @@ case "$route" in
         fi
         printf '%s' "$downloadFolder" > "/tmp/spotdl-folder-${trackId}.txt"
 
-        SPOTDL="$HOME/.local/share/spotify-remastered/spotdl"
-        FFMPEG="$HOME/.spotdl/ffmpeg"
+        SPOTDL="$HOME/.local/share/spotify-remastered/dependencies/spotdl"
+        FFMPEG="$HOME/.local/share/spotify-remastered/dependencies/ffmpeg"
         if [ ! -f "$FFMPEG" ]; then
-            "$SPOTDL" --download-ffmpeg >/dev/null 2>&1
+            EXISTING_FFMPEG=$(command -v ffmpeg || true)
+            [ -z "$EXISTING_FFMPEG" ] && EXISTING_FFMPEG="$HOME/.spotdl/ffmpeg"
+            if [ -f "$EXISTING_FFMPEG" ]; then
+                cp "$EXISTING_FFMPEG" "$FFMPEG.pending"
+            else
+                FFMPEG_ARCH=x64
+                [[ "$(uname -m)" == arm64 ]] && FFMPEG_ARCH=arm64
+                curl -fL --max-time 120 -o "$FFMPEG.pending" "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-$FFMPEG_ARCH"
+            fi
+            chmod +x "$FFMPEG.pending"
+            if "$FFMPEG.pending" -hide_banner -encoders 2>&1 | grep -q libmp3lame; then
+                mv "$FFMPEG.pending" "$FFMPEG"
+            else
+                respond '{"status":"error","message":"FFmpeg setup failed."}'
+                exit 0
+            fi
         fi
 
         echo "downloading" > "$STATUS_FILE"
 
         DOWNLOAD_COMMAND=("$SPOTDL")
-        RUNNER_PYTHON="$HOME/.local/share/spotify-remastered/downloader/bin/python"
-        RUNNER_SCRIPT="$HOME/.local/share/spotify-remastered/download-runner.py"
+        RUNNER_PYTHON="$HOME/.local/share/spotify-remastered/dependencies/downloader/bin/python"
+        RUNNER_SCRIPT="$HOME/.local/share/spotify-remastered/scripts/download-runner.py"
         if [ -x "$RUNNER_PYTHON" ] && [ -f "$RUNNER_SCRIPT" ]; then
             DOWNLOAD_COMMAND=("$RUNNER_PYTHON" "$RUNNER_SCRIPT")
         fi

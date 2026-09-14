@@ -10,10 +10,36 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import parse_qs
+from urllib.request import urlopen
+import platform
 
 
 ROOT = Path.home() / '.local/share/spotify-remastered'
-JOBS = ROOT / 'playlist-jobs'
+JOBS = ROOT / 'cache/playlist-jobs'
+
+
+def managed_ffmpeg():
+    (ROOT / 'dependencies').mkdir(parents=True, exist_ok=True)
+    target = ROOT / 'dependencies/ffmpeg'
+    if target.is_file():
+        return str(target)
+    existing = shutil.which('ffmpeg') or str(Path.home() / '.spotdl/ffmpeg')
+    temporary = ROOT / 'dependencies' / ('ffmpeg-' + uuid.uuid4().hex + '.pending')
+    try:
+        if Path(existing).is_file():
+            shutil.copy2(existing, temporary)
+        else:
+            arch = 'arm64' if platform.machine() == 'arm64' else 'x64'
+            with urlopen('https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/darwin-' + arch, timeout=120) as source, temporary.open('wb') as dest:
+                shutil.copyfileobj(source, dest)
+        temporary.chmod(0o755)
+        result = subprocess.run([str(temporary), '-hide_banner', '-encoders'], capture_output=True, text=True, timeout=15)
+        if result.returncode or 'libmp3lame' not in result.stdout:
+            raise RuntimeError('FFmpeg is not compatible with MP3 downloads.')
+        temporary.replace(target)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return str(target)
 
 
 def safe_name(name):
@@ -66,10 +92,7 @@ def worker(job):
             else:
                 queue.append((track, target))
             seen.add(track['id'])
-        ffmpeg = shutil.which('ffmpeg') or str(Path.home() / '.spotdl/ffmpeg')
-        if not Path(ffmpeg).is_file():
-            subprocess.run([str(ROOT / 'spotdl'), '--download-ffmpeg'], timeout=120,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        ffmpeg = managed_ffmpeg()
         while queue or active:
             if (job / 'cancel').exists():
                 state['status'] = 'cancelled'
@@ -80,9 +103,9 @@ def worker(job):
                 work.mkdir()
                 try:
                     with (work / 'stdout.log').open('wb') as out, (work / 'stderr.log').open('wb') as err:
-                        runner_python = ROOT / 'downloader/bin/python'
-                        runner = ROOT / 'download-runner.py'
-                        command = [str(runner_python), str(runner)] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'spotdl')]
+                        runner_python = ROOT / 'dependencies/downloader/bin/python'
+                        runner = ROOT / 'scripts/download-runner.py'
+                        command = [str(runner_python), str(runner)] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'dependencies/spotdl')]
                         process = subprocess.Popen(command + ['download',
                             'https://open.spotify.com/track/' + track['id'], '--output', '{title}.{output-ext}',
                             '--ffmpeg', ffmpeg, '--format', 'mp3', '--audio', 'youtube-music', 'youtube',

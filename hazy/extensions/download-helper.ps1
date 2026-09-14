@@ -12,6 +12,24 @@ public class WinHelper {
 $script:downloads = @{}
 $script:playlists = @{}
 $script:singleOrder = 0
+$script:lastLogCleanup = [DateTime]::MinValue
+
+function Clear-DownloadLogs {
+    if (([DateTime]::UtcNow - $script:lastLogCleanup).TotalMinutes -lt 10) { return }
+    $script:lastLogCleanup = [DateTime]::UtcNow
+    $root = Join-Path $env:LOCALAPPDATA 'spotify-remastered\cache\download-logs'
+    if (-not (Test-Path -LiteralPath $root)) { return }
+    $active = @($script:downloads.Values | Where-Object { $_.Status -eq 'downloading' } | ForEach-Object { $_.JobDir })
+    foreach ($batch in $script:playlists.Values) { $active += @($batch.Active.Values | ForEach-Object { $_.JobDir }) }
+    $jobs = @(Get-ChildItem -LiteralPath $root -Directory | Where-Object { $_.Name -match '^[a-f0-9]{32}$' -and $_.FullName -notin $active } | Sort-Object LastWriteTime -Descending)
+    for ($i = 0; $i -lt $jobs.Count; $i++) {
+        if ($i -ge 20 -or $jobs[$i].LastWriteTimeUtc -lt [DateTime]::UtcNow.AddDays(-7)) {
+            if ($jobs[$i].Parent.FullName -eq [IO.Path]::GetFullPath($root)) {
+                Remove-Item -LiteralPath $jobs[$i].FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
 
 function Stop-Download($dl) {
     if ($dl.Process -and -not $dl.Process.HasExited) {
@@ -29,7 +47,7 @@ function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName
     # relative output avoids spotdl sanitizing dots in parent directory names.
     $output = '{title}.{output-ext}'
     $argsText = "download `"https://open.spotify.com/track/$trackId`" --output `"$output`" --ffmpeg `"$ffmpeg`" --format mp3 --audio youtube-music youtube --max-retries 2"
-    $runner = Join-Path $env:LOCALAPPDATA 'spotify-remastered\download-runner.py'
+    $runner = Join-Path $env:LOCALAPPDATA 'spotify-remastered\scripts\download-runner.py'
     $python = Join-Path ([System.IO.Path]::GetDirectoryName($spotdl)) 'python.exe'
     $executable = $spotdl
     if ((Test-Path -LiteralPath $runner -PathType Leaf) -and (Test-Path -LiteralPath $python -PathType Leaf)) {
@@ -120,21 +138,28 @@ function Select-DownloadFolder {
 
 function Get-Downloader {
     $customDir = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
-    $spotdl = Join-Path $customDir 'spotdl.exe'
-    $pythonSpotdl = Join-Path $customDir 'downloader\Scripts\spotdl.exe'
+    $spotdl = Join-Path $customDir 'dependencies\spotdl.exe'
+    $pythonSpotdl = Join-Path $customDir 'dependencies\downloader\Scripts\spotdl.exe'
     if (Test-Path -LiteralPath $pythonSpotdl -PathType Leaf) { $spotdl = $pythonSpotdl }
-    $ffmpeg = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
-    if (-not $ffmpeg) {
-        $ffmpeg = Join-Path $env:USERPROFILE '.spotdl\ffmpeg.exe'
-        if (-not (Test-Path -LiteralPath $ffmpeg)) {
-            $setup = Start-Process -FilePath $spotdl -ArgumentList '--download-ffmpeg' -PassThru -WindowStyle Hidden
-            if (-not $setup.WaitForExit(120000)) {
-                Stop-Download @{ Process = $setup }
-                throw 'FFmpeg setup timed out.'
+    New-Item -ItemType Directory -Force -Path (Join-Path $customDir 'dependencies') | Out-Null
+    $ffmpeg = Join-Path $customDir 'dependencies\ffmpeg.exe'
+    if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) {
+        $existing = (Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+        if (-not $existing) { $existing = Join-Path $env:USERPROFILE '.spotdl\ffmpeg.exe' }
+        $temporary = Join-Path $customDir 'dependencies\ffmpeg.pending.exe'
+        try {
+            if (Test-Path -LiteralPath $existing -PathType Leaf) {
+                Copy-Item -LiteralPath $existing -Destination $temporary -ErrorAction Stop
+            } else {
+                $arch = if ([Environment]::Is64BitOperatingSystem) { 'x64' } else { 'ia32' }
+                Invoke-WebRequest -UseBasicParsing -Uri "https://github.com/eugeneware/ffmpeg-static/releases/download/b4.4/win32-$arch" -OutFile $temporary -TimeoutSec 120
             }
-        }
+            $encoders = & $temporary -hide_banner -encoders 2>&1
+            if ($LASTEXITCODE -ne 0 -or ($encoders | Out-String) -notmatch '\blibmp3lame\b') { throw 'FFmpeg is not compatible with MP3 downloads.' }
+            Move-Item -LiteralPath $temporary -Destination $ffmpeg -Force -ErrorAction Stop
+        } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
     }
-    return @{ Spotdl = $spotdl; FFmpeg = $ffmpeg; JobsDir = (Join-Path $customDir 'download-logs') }
+    return @{ Spotdl = $spotdl; FFmpeg = $ffmpeg; JobsDir = (Join-Path $customDir 'cache\download-logs') }
 }
 
 function Start-Playlist($body, $folder, $tools) {
@@ -226,6 +251,8 @@ function Playlist-Status($batch) {
         current = @($batch.Active.Values | ForEach-Object { $_.Track.Name }); currentIds = @($batch.Active.Keys) }
 }
 
+$linkModule = Join-Path $PSScriptRoot 'link-helper.ps1'
+if (Test-Path -LiteralPath $linkModule) { . $linkModule }
 if ($NoListen) { return }
 $listener = New-Object System.Net.HttpListener
 $listener.Prefixes.Add("http://127.0.0.1:27382/")
@@ -246,6 +273,8 @@ try { while ($listener.IsListening) {
     while (-not $pending.AsyncWaitHandle.WaitOne(1000)) {
         Update-Singles
         foreach ($batch in @($script:playlists.Values)) { Update-Playlist $batch }
+        Clear-DownloadLogs
+        if (Get-Command Clear-LinkJobs -ErrorAction SilentlyContinue) { Clear-LinkJobs }
     }
     $ctx = $listener.EndGetContext($pending)
     $pending.AsyncWaitHandle.Close()
@@ -269,6 +298,10 @@ try { while ($listener.IsListening) {
         continue
     }
     $route = $ctx.Request.Url.AbsolutePath
+    if ($route -in @('/link-preview', '/link-download', '/link-status', '/link-cancel', '/link-folder')) {
+        Handle-Link $ctx $route
+        continue
+    }
 
     switch ($route) {
         "/open-folder" {

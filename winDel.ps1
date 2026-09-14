@@ -17,18 +17,22 @@ $killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {
 try {
 
 $customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
-$statusFile = Join-Path $customDir "spicetify-status.txt"
+$statusFile = Join-Path $customDir "data\spicetify-status.txt"
+if (-not (Test-Path $statusFile)) { $statusFile = Join-Path $customDir 'spicetify-status.txt' }
 $fullWipe = $false
 if (Test-Path $statusFile) {
     $statusContent = Get-Content $statusFile -Raw
     if ($statusContent -match 'spicetify-existed-before=False') { $fullWipe = $true }
 }
-$prevThemeFile = Join-Path $customDir "prev-theme.txt"
+$prevThemeFile = Join-Path $customDir "data\prev-theme.txt"
+if (-not (Test-Path $prevThemeFile)) { $prevThemeFile = Join-Path $customDir 'prev-theme.txt' }
 $prevTheme = if (Test-Path $prevThemeFile) { (Get-Content $prevThemeFile -Raw).Trim() } else { $null }
 
 $startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
 Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.vbs") -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.lnk") -Force -ErrorAction SilentlyContinue
+Remove-Item (Join-Path $startupDir 'Spotify Remastered Download Helper.vbs') -Force -ErrorAction SilentlyContinue
+Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('powershell.exe', 'pwsh.exe') -and $_.CommandLine -match '-File\s+"?[^"\r\n]*spotify-remastered[\\/]scripts[\\/]download-helper.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Remove-Item -Recurse -Force $customDir -ErrorAction SilentlyContinue
 
 if (Get-Command spicetify -ErrorAction SilentlyContinue) {

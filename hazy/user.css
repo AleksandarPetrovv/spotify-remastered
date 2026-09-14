@@ -1211,6 +1211,10 @@ PLAY BUTTONS
   border-style: none !important;
 }
 
+.Root__globalNav .main-actionButtons-spacer:has(.main-globalNav-buddyFeed) {
+  background: transparent !important;
+}
+
 .search-searchCategory-carouselButton,
 .search-searchCategory-carouselButton:hover {
   background-color: transparent;

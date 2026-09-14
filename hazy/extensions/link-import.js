@@ -13,7 +13,7 @@
         .sr-bulk-queue {max-height:min(360px,calc(100vh - 420px))!important;min-height:120px;scrollbar-color:var(--spice-subtext) transparent;scrollbar-width:thin}
         .sr-bulk-queue::-webkit-scrollbar-button {display:none;width:0;height:0}
         .sr-bulk-row {min-height:38px!important;gap:12px}
-        .sr-bulk-row span {width:24px;flex-shrink:0;color:var(--spice-subtext)}
+        .sr-bulk-row span {text-align:center;width:24px;flex-shrink:0;color:var(--spice-subtext)}
         .sr-bulk-fields {display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
         #sr-link-import .sr-bulk-edit {display:block;text-align:left;border:0;background:transparent;padding:2px 0;border-radius:3px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
         #sr-link-import .sr-bulk-edit:hover:not(:disabled) {background:transparent;text-decoration:underline;text-underline-offset:3px}
@@ -22,6 +22,8 @@
         #sr-link-import .sr-bulk-edit:disabled {opacity:1}
         #sr-link-import .sr-bulk-fields input {height:30px;min-width:0;padding:0 8px}
         .sr-bulk-row {flex-shrink:0}
+        .sr-bulk-row[data-added=true] .sr-bulk-fields {opacity:.5}
+        .sr-bulk-row .sr-bulk-check {align-self:center;line-height:0;color:#1DB954;display:flex;align-items:center;justify-content:center;width:24px;flex-shrink:0}
         .sr-link-tabs {display:flex;gap:8px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px}
         #sr-link-import button {font:inherit;cursor:pointer;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:transparent;color:var(--spice-text);padding:9px 14px}
         #sr-link-import button:hover {background:rgba(255,255,255,.08)}
@@ -290,7 +292,7 @@
                     const value=element('button',entry[key+'Edit'] ?? detected[key],'sr-bulk-edit');
                     value.dataset.field=key;value.title=value.textContent;
                     value.setAttribute('aria-label','Edit '+label.toLowerCase()+' for song '+(index+1));
-                    value.disabled=importing;
+                    value.disabled=importing || !!entry.added;
                     value.type='button';
                     value.onclick=event=>{
                         event.preventDefault();event.stopPropagation();
@@ -307,7 +309,11 @@
                     };
                     fields.append(value);
                 }
-                row.append(element('span',String(index+1)),fields);
+                row.dataset.added=String(!!entry.added);
+                const marker=element('span',entry.added?null:String(index+1),entry.added?'sr-bulk-check':null);
+                if(entry.added){marker.innerHTML='<svg viewBox="0 0 24 24" width="20" height="20" fill="none" aria-hidden="true"><path d="M5 12l4 4L19 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';marker.setAttribute('aria-label','Added to playlist');}
+                row.style.alignItems='center';
+                row.append(marker,fields);
                 bulkList.append(row);
             }
             bulkList.scrollTop=scroll;
@@ -370,6 +376,7 @@
                         lastSavedId=job.id;
                         bulkProgress.name='Adding “'+songTitle+'”…';background?.update(bulkProgress);
                         const result=await addIndexed(job,uri,status,stopped);
+                        entry.added=true;
                         bulkProgress[result==='existing'?'existing':'added']++;
                     } catch(error) {
                         if(cancelled)break;

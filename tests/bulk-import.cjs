@@ -28,6 +28,8 @@ async function scenario(failSecond, cancelAfterFirst) {
   assert.deepEqual(order,cancelAfterFirst?['song1']:['song1','song2','song3']);
   assert.equal(env.bulkProgress.failed.length,failSecond?1:0);
   assert.equal(env.bulkProgress.added,cancelAfterFirst?1:2);
+  assert.equal(env.collection.entries[0].added,true);
+  if(failSecond)assert.equal(env.collection.entries[1].added,undefined);
   assert.equal(env.importing,false);
   assert.equal(env.finished,cancelAfterFirst?'cancelled':'done');
 }

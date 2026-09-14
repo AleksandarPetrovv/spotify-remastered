@@ -137,7 +137,9 @@ def request(route, query, length):
             raise ValueError('Invalid playlist request.')
         body = json.loads(sys.stdin.buffer.read(length))
         playlist_id = body.get('id', '')
-    if not re.fullmatch(r'[a-zA-Z0-9]{22}', playlist_id):
+        if body.get('kind') == 'album':
+            playlist_id = 'album-' + playlist_id
+    if not re.fullmatch(r'(?:album-)?[a-zA-Z0-9]{22}', playlist_id):
         raise ValueError('Invalid Spotify playlist ID.')
     JOBS.mkdir(parents=True, exist_ok=True)
     pointer = JOBS / (playlist_id + '.json')

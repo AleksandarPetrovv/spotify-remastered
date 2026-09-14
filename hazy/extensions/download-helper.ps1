@@ -265,14 +265,15 @@ try { while ($listener.IsListening) {
                 $reader = New-Object System.IO.StreamReader($ctx.Request.InputStream, [System.Text.Encoding]::UTF8)
                 try { $body = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
                 if ($body.id -notmatch '^[a-zA-Z0-9]{22}$') { throw 'Invalid Spotify playlist ID.' }
-                if ($script:playlists.ContainsKey($body.id) -and $script:playlists[$body.id].Status -eq 'downloading') {
+                $batchId = if ($body.kind -eq 'album') { 'album-' + $body.id } else { $body.id }
+                if ($script:playlists.ContainsKey($batchId) -and $script:playlists[$batchId].Status -eq 'downloading') {
                     Respond $ctx '{"status":"already_downloading"}'
                     break
                 }
                 $folder = Select-DownloadFolder
                 if (-not $folder) { Respond $ctx '{"status":"no_folder"}'; break }
                 $batch = Start-Playlist $body $folder (Get-Downloader)
-                $script:playlists[$body.id] = $batch
+                $script:playlists[$batchId] = $batch
                 Update-Playlist $batch
                 Respond $ctx '{"status":"started"}'
             } catch { Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress) }

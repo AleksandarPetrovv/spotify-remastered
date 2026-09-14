@@ -23,9 +23,9 @@
                 + '</svg>';
     function downloadUri(value) {
         if (typeof value !== 'string') return null;
-        var match = value.match(/^spotify:(track|playlist):([a-zA-Z0-9]{22})$/)
+        var match = value.match(/^spotify:(track|playlist|album):([a-zA-Z0-9]{22})$/)
             || value.match(/^spotify:user:[^:]+:(playlist):([a-zA-Z0-9]{22})$/)
-            || value.match(/^https:\/\/open\.spotify\.com\/(track|playlist)\/([a-zA-Z0-9]{22})(?:[?#].*)?$/);
+            || value.match(/^https:\/\/open\.spotify\.com\/(track|playlist|album)\/([a-zA-Z0-9]{22})(?:[?#].*)?$/);
         return match ? { type: match[1], id: match[2] } : null;
     }
     function trackForMenu(props, target) {
@@ -343,21 +343,21 @@
         return Array.from(new Set(names)).join(', ');
     }
 
-    var playlistDownloads = new Map();
+    var collectionDownloads = new Map();
 
-    function playlistForMenu(props) {
+    function collectionForMenu(props) {
         props = props || {};
         var candidates = props.uris || [props.uri, props.item && props.item.uri, props.reference && props.reference.uri];
         for (var i = 0; i < candidates.length; i++) {
             try {
                 var uri = downloadUri(candidates[i]);
-                if (uri && uri.type === 'playlist') return uri;
+                if (uri && (uri.type === 'playlist' || uri.type === 'album')) return uri;
             } catch (e) {}
         }
         return null;
     }
 
-    function playlistPanel(state) {
+    function collectionPanel(state) {
         injectNotifStyles();
         var stack = document.getElementById('spotdl-playlists');
         if (!stack) {
@@ -373,7 +373,7 @@
         var panel = document.createElement('section');
         panel.className = 'spotdl-playlist spotdl-toast';
         panel.style.cssText = toastStyle + ';position:relative;bottom:auto;right:auto;pointer-events:auto';
-        panel.setAttribute('aria-label', 'Playlist download');
+        panel.setAttribute('aria-label', state.label + ' download');
         var icon = document.createElement('div');
         icon.style.cssText = 'flex-shrink:0;display:flex;align-items:center;justify-content:center;width:22px;height:22px';
         toastIcon(icon, spinnerMarkup, state.cover);
@@ -403,7 +403,7 @@
         copy.append(heading, status, current, detail, actions);
         var cancel = document.createElement('button');
         cancel.textContent = '\u00d7';
-        cancel.setAttribute('aria-label', 'Cancel playlist download');
+        cancel.setAttribute('aria-label', 'Cancel ' + state.type + ' download');
         cancel.title = 'Cancel download';
         cancel.onclick = async function() {
             if (state.finished) { state.remove(); return; }
@@ -423,7 +423,7 @@
         state.ui = { panel: panel, icon: icon, status: status, detail: detail, cancel: cancel, current: current, actions: actions, heading: heading };
         state.remove = function() {
             clearTimeout(state.dismiss);
-            if (playlistDownloads.get(state.id) === state) playlistDownloads.delete(state.id);
+            if (collectionDownloads.get(state.id) === state) collectionDownloads.delete(state.id);
             exitToast(panel, function() { panel.remove(); if (!stack.childElementCount) stack.remove(); });
         };
         arrangeNotifs();
@@ -433,22 +433,23 @@
         var timer;
         try {
             return await Promise.race([promise, new Promise(function(resolve, reject) {
-                timer = setTimeout(function() { reject(new Error('Spotify took too long to load the playlist. Try again.')); }, timeout);
+                timer = setTimeout(function() { reject(new Error('Spotify took too long to load the collection. Try again.')); }, timeout);
             })]);
         } finally { clearTimeout(timer); }
     }
 
-    async function startPlaylist(playlist) {
-        var prior = playlistDownloads.get(playlist.id);
+    async function startCollection(collection) {
+        var jobId = collection.type === 'album' ? 'album-' + collection.id : collection.id;
+        var prior = collectionDownloads.get(jobId);
         if (prior && !prior.finished) return;
         if (prior && prior.ui) prior.remove();
-        var state = { id: playlist.id, name: 'Playlist download', poll: null, finished: false, cancelled: false, helperStarted: false, failed: [], omitted: 0, trackInfo: new Map() };
-        playlistDownloads.set(state.id, state);
+        var state = { id: jobId, type: collection.type, label: collection.type === 'album' ? 'Album' : 'Playlist', name: 'Collection download', poll: null, finished: false, cancelled: false, helperStarted: false, failed: [], omitted: 0, trackInfo: new Map() };
+        collectionDownloads.set(state.id, state);
         state.finish = function(message, error) {
             state.finished = true;
             clearTimeout(state.poll);
             if (!state.ui) {
-                playlistDownloads.delete(state.id);
+                collectionDownloads.delete(state.id);
                 if (error) Spicetify.showNotification(message, true);
                 return;
             }
@@ -456,7 +457,7 @@
             state.ui.heading.hidden = true;
             toastIcon(state.ui.icon, error ? '<span style="font-size:22px">!</span>' : message === 'Download cancelled' ? '<span style="font-size:22px">\u00d7</span>' : successMarkup, state.cover);
             state.ui.cancel.disabled = false;
-            state.ui.cancel.setAttribute('aria-label', 'Dismiss playlist download');
+            state.ui.cancel.setAttribute('aria-label', 'Dismiss ' + state.type + ' download');
             state.ui.cancel.title = 'Dismiss';
             state.ui.actions.hidden = false;
             state.ui.current.hidden = true;
@@ -466,35 +467,51 @@
             state.dismiss = dismissTimer(state.remove, 5000);
         };
         try {
-            var uri = 'spotify:playlist:' + state.id;
-            var meta = await withTimeout(Spicetify.Platform.PlaylistAPI.getMetadata(uri), 20000);
-            state.name = meta.name || 'Playlist';
+            var uri = 'spotify:' + collection.type + ':' + collection.id;
             var tracks = [];
             var offset = 0;
+            var album = collection.type === 'album';
+            var albumCover = '';
+            if (!album) {
+                var meta = await withTimeout(Spicetify.Platform.PlaylistAPI.getMetadata(uri), 20000);
+                state.name = meta.name || 'Playlist';
+            }
             while (!state.cancelled) {
-                var page = await withTimeout(Spicetify.Platform.PlaylistAPI.getContents(uri, { offset: offset, limit: 100 }), 20000);
-                if (!page || !Array.isArray(page.items)) throw new Error('Could not read the playlist.');
+                var page;
+                if (album) {
+                    var response = await withTimeout(Spicetify.GraphQL.Request(Spicetify.GraphQL.Definitions.getAlbum,
+                        { uri: uri, locale: '', offset: offset, limit: 100 }), 20000);
+                    var info = response && response.data && response.data.albumUnion;
+                    if (!info || !info.name) throw new Error('Could not read the album.');
+                    state.name = info.name;
+                    albumCover = albumCover || coverFor(info);
+                    var albumTracks = info.tracksV2 || info.tracks;
+                    if (!albumTracks || !Array.isArray(albumTracks.items)) throw new Error('Could not read the album tracks.');
+                    page = { items: albumTracks.items.map(function(entry) { return entry.track || entry; }), totalLength: albumTracks.totalCount };
+                } else {
+                    page = await withTimeout(Spicetify.Platform.PlaylistAPI.getContents(uri, { offset: offset, limit: 100 }), 20000);
+                }
+                if (!page || !Array.isArray(page.items) || !Number.isFinite(page.totalLength)) throw new Error('Could not read the complete ' + state.type + '.');
                 page.items.forEach(function(item) {
-                    var track;
-                    track = downloadUri(item.uri);
-                    if (!track || track.type !== 'track' || item.isLocal || item.isPlayable === false) { state.omitted++; return; }
+                    var track = downloadUri(item.uri);
+                    if (!track || track.type !== 'track' || item.isLocal || item.isPlayable === false || item.playability && item.playability.playable === false) { state.omitted++; return; }
                     tracks.push({ id: track.id, name: item.name || track.id });
-                    state.trackInfo.set(track.id, { id: track.id, name: item.name || track.id, artist: artistsForTrack(item), cover: coverFor(item) });
+                    state.trackInfo.set(track.id, { id: track.id, name: item.name || track.id, artist: artistsForTrack(item), cover: album ? albumCover : coverFor(item) });
                 });
                 offset += page.items.length;
                 if (offset >= page.totalLength) break;
-                if (!page.items.length || offset > 10000) throw new Error('Could not load the complete playlist. Try again.');
+                if (!page.items.length || offset > 10000) throw new Error('Could not load the complete ' + state.type + '. Try again.');
             }
             if (state.cancelled) { state.finish('Cancelled.'); return; }
-            if (!tracks.length) { state.finish('No downloadable songs in this playlist.', true); return; }
-            var data = await helperRequest('playlist', 180000, { id: state.id, name: state.name, tracks: tracks });
+            if (!tracks.length) { state.finish('No downloadable songs in this ' + state.type + '.', true); return; }
+            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks });
             if (data.status === 'no_folder' || data.status === 'cancelled') { state.finish('Cancelled.'); return; }
-            if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the playlist download. Update the download helper and try again.');
+            if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the download. Update the download helper and try again.');
             state.helperStarted = true;
             state.total = tracks.length;
             state.song = state.trackInfo.get(tracks[0].id);
             state.cover = state.song.cover;
-            playlistPanel(state);
+            collectionPanel(state);
             if (state.cancelled) {
                 await helperRequest('playlist-cancel?id=' + state.id, 8000);
                 state.finish('Cancelled. Files already saved have been kept.');
@@ -506,12 +523,12 @@
                 try {
                     var result = await helperRequest('playlist-status?id=' + state.id, 8000);
                     if (state.finished) return;
-                    if (result.status !== 'downloading' && result.status !== 'done' && result.status !== 'cancelled') throw new Error('The playlist download is no longer available.');
+                    if (result.status !== 'downloading' && result.status !== 'done' && result.status !== 'cancelled') throw new Error('The download is no longer available.');
                     connectionFailures = 0;
                     state.failed = result.failed || [];
                     state.result = result;
                     var completed = result.saved + result.skipped + state.failed.length;
-                    state.ui.panel.setAttribute('aria-label', 'Playlist download: ' + completed + ' of ' + result.total);
+                    state.ui.panel.setAttribute('aria-label', state.label + ' download: ' + completed + ' of ' + result.total);
                     var ids = Array.isArray(result.currentIds) ? result.currentIds : [];
                     var songId = state.song && ids.indexOf(state.song.id) !== -1 ? state.song.id : ids[0];
                     var song = state.trackInfo.get(songId);
@@ -542,16 +559,16 @@
                 state.poll = setTimeout(poll, 1000);
             }
             poll();
-        } catch (e) { state.finish(e.message || 'Could not download the playlist.', true); }
+        } catch (e) { state.finish(e.message || 'Could not download the ' + state.type + '.', true); }
     }
 
     new Spicetify.ContextMenuV2.Item({
         children: 'Download as MP3s',
         leadingIcon: 'download',
-        shouldAdd: function(props) { return !!playlistForMenu(props); },
+        shouldAdd: function(props) { return !!collectionForMenu(props); },
         onClick: function(context) {
-            var playlist = playlistForMenu(context.props);
-            if (playlist) startPlaylist(playlist);
+            var playlist = collectionForMenu(context.props);
+            if (playlist) startCollection(playlist);
         }
     }).register();
 

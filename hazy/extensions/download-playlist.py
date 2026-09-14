@@ -160,6 +160,14 @@ def worker(job):
                     files = [file for file in work.glob('*.mp3') if file.stat().st_size > 0]
                     if code != 0 or len(files) != 1:
                         raise RuntimeError('The song could not be downloaded. Details are in the download logs.')
+                    if config.get('single'):
+                        target = folder / files[0].name
+                        if target.exists():
+                            if target.stat().st_size > 0:
+                                state['skipped'] += 1
+                                active.remove(entry)
+                                continue
+                            raise RuntimeError('The destination contains an empty file with this name.')
                     shutil.move(str(files[0]), str(target))
                     state['saved'] += 1
                     index[track['id']] = target.name
@@ -189,6 +197,8 @@ def worker(job):
 
 
 def request(route, query, length):
+    if route == '/health':
+        return {'status': 'ready', 'service': 'spotify-remastered'}
     if route == 'OPTIONS':
         return {}
     if route == '/playlist-folder':
@@ -202,8 +212,16 @@ def request(route, query, length):
         token = uuid.uuid4().hex
         write_json(JOBS / ('selection-' + token + '.json'), {'folder': result.stdout.strip()})
         return {'status': 'selected', 'token': token}
-    playlist_id = parse_qs(query).get('id', [''])[0]
+    parameters = parse_qs(query)
+    single = route in ('/download', '/status', '/cancel') or (route == '/open-folder' and parameters.get('kind') == ['track'])
+    if route == '/status':
+        route = '/playlist-status'
+    elif route == '/cancel':
+        route = '/playlist-cancel'
+    playlist_id = parameters.get('id', [''])[0]
     body = None
+    if route == '/download':
+        body = {'id': playlist_id, 'tracks': [{'id': playlist_id, 'name': playlist_id}]}
     if route == '/playlist':
         if length <= 0 or length > 2097152:
             raise ValueError('Invalid playlist request.')
@@ -213,6 +231,8 @@ def request(route, query, length):
             playlist_id = 'album-' + playlist_id
     if not re.fullmatch(r'(?:album-)?[a-zA-Z0-9]{22}', playlist_id):
         raise ValueError('Invalid Spotify playlist ID.')
+    if single:
+        playlist_id = 'single-' + playlist_id
     JOBS.mkdir(parents=True, exist_ok=True)
     pointer = JOBS / (playlist_id + '.json')
     job = Path(json.loads(pointer.read_text())['job']) if pointer.exists() else None
@@ -229,6 +249,12 @@ def request(route, query, length):
                 os.kill(pid, 0)
             except ProcessLookupError:
                 return {'status': 'idle'}
+        if single and state['status'] == 'done' and state.get('failed'):
+            return dict(state, status='error', message=state['failed'][0].get('message', 'Download failed.'))
+        if single and state['status'] == 'downloading':
+            working = list(job.glob('*/worker-started'))
+            if not working:
+                return dict(state, status='queued')
         return state
     if route == '/playlist-cancel':
         if job:
@@ -258,11 +284,11 @@ def request(route, query, length):
         if result.returncode != 0 or not result.stdout.strip():
             return {'status': 'no_folder'}
         selected = result.stdout.strip()
-    folder = Path(selected) / safe_name(body.get('name', 'Playlist'))
+    folder = Path(selected) if single else Path(selected) / safe_name(body.get('name', 'Playlist'))
     folder.mkdir(exist_ok=True)
     job = JOBS / uuid.uuid4().hex
     job.mkdir()
-    write_json(job / 'request.json', {'tracks': tracks, 'folder': str(folder), 'name': body.get('name', 'Playlist')})
+    write_json(job / 'request.json', {'tracks': tracks, 'folder': str(folder), 'name': body.get('name', 'Playlist'), 'single': single})
     write_json(job / 'status.json', {'status': 'downloading', 'saved': 0, 'skipped': 0, 'failed': [],
                                    'total': len(tracks), 'folder': str(folder), 'current': []})
     with (job / 'worker.log').open('wb') as log:
@@ -270,7 +296,7 @@ def request(route, query, length):
                                    stdout=log, stderr=log, start_new_session=True)
     write_json(job / 'pid.json', {'pid': process.pid})
     write_json(pointer, {'job': str(job)})
-    return {'status': 'started'}
+    return {'status': 'started', 'jobStatus': 'queued' if single else 'downloading'}
 
 
 if __name__ == '__main__':

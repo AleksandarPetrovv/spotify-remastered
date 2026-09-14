@@ -1,79 +1,41 @@
-function Get-SpicetifyConfigDir {
-    if ($env:SPICETIFY_CONFIG -and (Test-Path $env:SPICETIFY_CONFIG)) { return $env:SPICETIFY_CONFIG }
-    try {
-        $p = (& spicetify path userdata 2>$null | Select-Object -Last 1)
-        if ($p) { $p = $p.Trim() }
-        if ($p -and (Test-Path $p)) { return $p }
-    } catch { }
-    $candidates = @( (Join-Path $env:APPDATA 'spicetify'), (Join-Path $env:LOCALAPPDATA 'spicetify') )
-    foreach ($c in $candidates) { if (Test-Path (Join-Path $c 'config-xpui.ini')) { return $c } }
-    foreach ($c in $candidates) { if (Test-Path $c) { return $c } }
-    return $null
+$ErrorActionPreference = 'Stop'
+$root = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
+$common = Join-Path $root 'scripts\installer-common.ps1'
+if (-not (Test-Path -LiteralPath $common)) {
+    throw 'This installation needs the updated setup scripts before removal. No files have been deleted.'
 }
-
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-$killJob = Start-Job -ScriptBlock { while ($true) { Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 500 } }
-
-try {
-
-$customDir = Join-Path $env:LOCALAPPDATA "spotify-remastered"
-$statusFile = Join-Path $customDir "data\spicetify-status.txt"
-if (-not (Test-Path $statusFile)) { $statusFile = Join-Path $customDir 'spicetify-status.txt' }
-$fullWipe = $false
-if (Test-Path $statusFile) {
-    $statusContent = Get-Content $statusFile -Raw
-    if ($statusContent -match 'spicetify-existed-before=False') { $fullWipe = $true }
+. $common
+$spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
+$cfg = Get-RemasteredConfig $spice
+$python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
+$stateTool = Join-Path $root 'scripts\install-state.py'
+if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $stateTool)) {
+    throw 'The restoration tools are missing. Repair setup before uninstalling; user data has been kept.'
 }
-$prevThemeFile = Join-Path $customDir "data\prev-theme.txt"
-if (-not (Test-Path $prevThemeFile)) { $prevThemeFile = Join-Path $customDir 'prev-theme.txt' }
-$prevTheme = if (Test-Path $prevThemeFile) { (Get-Content $prevThemeFile -Raw).Trim() } else { $null }
-
-$startupDir = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup"
-Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.vbs") -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $startupDir "Spotify Remastered Updater.lnk") -Force -ErrorAction SilentlyContinue
-Remove-Item (Join-Path $startupDir 'Spotify Remastered Download Helper.vbs') -Force -ErrorAction SilentlyContinue
-Get-CimInstance Win32_Process | Where-Object { $_.Name -in @('powershell.exe', 'pwsh.exe') -and $_.CommandLine -match '-File\s+"?[^"\r\n]*spotify-remastered[\\/]scripts[\\/]download-helper.ps1' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Remove-Item -Recurse -Force $customDir -ErrorAction SilentlyContinue
-
-if (Get-Command spicetify -ErrorAction SilentlyContinue) {
-    spicetify restore
-    $cfg = Get-SpicetifyConfigDir
-    if ($cfg) {
-        Remove-Item -Recurse -Force (Join-Path $cfg "Themes\Hazy") -ErrorAction SilentlyContinue
-        Remove-Item -Recurse -Force (Join-Path $cfg "CustomApps\lyrics-plus") -ErrorAction SilentlyContinue
-    }
-    spicetify config custom_apps lyrics-plus-
-    if ($prevTheme) {
-        spicetify config current_theme $prevTheme
-    } else {
-        spicetify config current_theme " "
-        spicetify config inject_theme_js 0
-    }
-    spicetify apply
-
-    if ($fullWipe) {
-        spicetify restore backup
-        $spicetifyPaths = @(
-            (Join-Path $env:LOCALAPPDATA 'spicetify'),
-            (Join-Path $env:APPDATA 'spicetify'),
-            (Join-Path $env:LOCALAPPDATA 'Programs\spicetify')
-        )
-        foreach ($p in $spicetifyPaths) { Remove-Item -Recurse -Force $p -ErrorAction SilentlyContinue }
-
-        $spiceBin = (Get-Command spicetify -ErrorAction SilentlyContinue).Source
-        if ($spiceBin) { Remove-Item -Force $spiceBin -ErrorAction SilentlyContinue }
-
-        $userPath = [System.Environment]::GetEnvironmentVariable("PATH", "User")
-        $cleaned = ($userPath -split ";") | Where-Object { $_ -notmatch "spicetify" } | Where-Object { $_ -ne "" }
-        [System.Environment]::SetEnvironmentVariable("PATH", ($cleaned -join ";"), "User")
-    }
+Invoke-Checked $python $stateTool capture $root $cfg 'true'
+$state = Get-Content -LiteralPath (Join-Path $root 'data\install-state.json') -Raw | ConvertFrom-Json
+$spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
+Stop-RemasteredHelpers $root
+Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
+$startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
+foreach ($file in @('Spotify Remastered Updater.vbs','Spotify Remastered Updater.lnk','Spotify Remastered Download Helper.vbs')) { Remove-ManagedPath $startup $file }
+Invoke-Checked $spice restore
+Invoke-Checked $python $stateTool restore $root $cfg
+& (Join-Path $root 'scripts\repair-spicetify.ps1') -Restore
+Invoke-Checked $python $stateTool spotx-restore $root $spotifyPath
+if ($state.existed) {
+    Invoke-Checked $spice backup apply
+} else {
+    $binaryDirectory = Split-Path $spice
+    $allowed = @((Join-Path $env:LOCALAPPDATA 'spicetify'), (Join-Path $env:LOCALAPPDATA 'Programs\spicetify'))
+    if ($binaryDirectory -notin $allowed) { throw 'Spicetify uses a custom installation path; restored Spotify and retained its CLI for manual removal.' }
+    if ($cfg -notin @((Join-Path $env:APPDATA 'spicetify'), (Join-Path $env:LOCALAPPDATA 'spicetify'), $binaryDirectory)) { throw 'Custom Spicetify configuration retained for manual cleanup; Spotify has been restored.' }
+    $userPath = [Environment]::GetEnvironmentVariable('PATH','User')
+    $entries = $userPath -split ';' | Where-Object { $_.TrimEnd('\') -ine $binaryDirectory.TrimEnd('\') }
+    [Environment]::SetEnvironmentVariable('PATH', ($entries -join ';'), 'User')
+    Remove-ManagedPath (Split-Path $binaryDirectory) (Split-Path $binaryDirectory -Leaf)
+    if ($cfg -ne $binaryDirectory) { Remove-ManagedPath (Split-Path $cfg) (Split-Path $cfg -Leaf) }
 }
-
-} finally {
-    Stop-Job $killJob -ErrorAction SilentlyContinue
-    Remove-Job $killJob -Force -ErrorAction SilentlyContinue
-}
-Get-Process | Where-Object {$_.ProcessName -like "*spotify*"} | Stop-Process -Force -ErrorAction SilentlyContinue
-
-Start-Sleep -Seconds 3
-exit
+Invoke-Checked $python $stateTool complete $root
+Remove-ManagedPath $root 'scripts'
+Write-Host 'Spotify Remastered removed. local songs, indexes, reusable dependencies and recovery records were preserved.'

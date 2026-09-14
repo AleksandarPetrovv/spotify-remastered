@@ -1,278 +1,121 @@
 #!/bin/bash
-set -e
+set -euo pipefail
 
-get_spicetify_config_dir() {
-    if [ -n "$SPICETIFY_CONFIG" ] && [ -d "$SPICETIFY_CONFIG" ]; then echo "$SPICETIFY_CONFIG"; return; fi
-    local p
-    p=$(spicetify path userdata 2>/dev/null | tail -1)
-    p=$(echo "$p" | xargs)
-    if [ -n "$p" ] && [ -d "$p" ]; then echo "$p"; return; fi
-    local candidates=("$HOME/.config/spicetify" "$HOME/.spicetify")
-    for c in "${candidates[@]}"; do
-        if [ -f "$c/config-xpui.ini" ]; then echo "$c"; return; fi
-    done
-    for c in "${candidates[@]}"; do
-        if [ -d "$c" ]; then echo "$c"; return; fi
-    done
-    echo "Could not locate Spicetify config directory." >&2; exit 1
-}
-
-pkill -9 -xi spotify >/dev/null 2>&1 || true
-
-(while true; do 
-    pkill -9 -xi spotify >/dev/null 2>&1 || true
-    sleep 0.1
-done) </dev/null >/dev/null 2>&1 &
-KILL_PID=$!
-
-cleanup() {
-    kill "$KILL_PID" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-TEMP_ZIP="/tmp/spotify-remastered.zip"
-TEMP_EXTRACT="/tmp/spotify-remastered"
-
-curl -L -o "$TEMP_ZIP" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/heads/cli.zip"
-
-if [ ! -f "$TEMP_ZIP" ]; then echo "Download failed."; exit 1; fi
-rm -rf "$TEMP_EXTRACT"
-mkdir -p "$TEMP_EXTRACT"
-unzip -q "$TEMP_ZIP" -d "$TEMP_EXTRACT"
-INNER=$(find "$TEMP_EXTRACT" -mindepth 1 -maxdepth 1 -type d | head -1)
-mv "$INNER" "$TEMP_EXTRACT/repository"
-REPO="$TEMP_EXTRACT/repository"
-if [ ! -d "$REPO" ]; then echo "Extracted repo folder not found at $REPO."; exit 1; fi
-
-SPICETIFY_EXISTED_BEFORE=true
-if ! command -v spicetify &>/dev/null; then
-    curl -fsSL https://raw.githubusercontent.com/spicetify/cli/main/install.sh -o /tmp/spicetify-install.sh
-    sed -i '' '/Do you want to install spicetify Marketplace/,/spicetify-marketplace/d' /tmp/spicetify-install.sh
-    sh /tmp/spicetify-install.sh
-    rm -f /tmp/spicetify-install.sh
-    rm -f install.log
-    sleep 2
-    export PATH="$HOME/.spicetify:$PATH"
-    SPICETIFY_EXISTED_BEFORE=false
+temporary=$(mktemp -d "${TMPDIR:-/tmp}/spotify-remastered.XXXXXX")
+trap 'rm -rf "$temporary"' EXIT
+curl -fL --retry 2 -o "$temporary/source.zip" "https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.8.zip"
+unzip -q "$temporary/source.zip" -d "$temporary/source"
+sources=("$temporary/source"/*)
+if [ "${#sources[@]}" -ne 1 ] || [ ! -d "${sources[0]}" ]; then echo 'Invalid release archive.' >&2; exit 1; fi
+repo="${sources[0]}"
+for file in setup-downloader.sh setup-downloader.py downloader-requirements.txt install-state.py update-spicetify.py link-helper.py download-playlist.py about-this-folder.txt; do
+    if [ ! -f "$repo/hazy/extensions/$file" ]; then echo "Missing installation file: $file" >&2; exit 1; fi
+done
+root="$HOME/.local/share/spotify-remastered"
+mkdir -p "$root/dependencies" "$root/data" "$root/cache" "$root/scripts"
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.spicetify:$PATH"
+for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
+    if launchctl print "gui/$(id -u)/$agent" >/dev/null 2>&1; then launchctl bootout "gui/$(id -u)/$agent"; fi
+done
+if [ -x "$root/dependencies/downloader/bin/python" ] && [ -f "$root/scripts/install-state.py" ]; then
+    "$root/dependencies/downloader/bin/python" "$root/scripts/install-state.py" stop "$root"
 fi
-
-spicetify >/dev/null 2>&1 || true
-CFG=$(get_spicetify_config_dir)
-THEMES_DIR="$CFG/Themes"
-APPS_DIR="$CFG/CustomApps"
-mkdir -p "$THEMES_DIR"
-mkdir -p "$APPS_DIR"
-HAZY_DEST="$THEMES_DIR/Hazy"
-LP_DEST="$APPS_DIR/lyrics-plus"
-
-rm -rf "$HAZY_DEST"
-cp -r "$REPO/hazy" "$HAZY_DEST"
-rm -rf "$LP_DEST"
-cp -r "$REPO/lyrics-plus" "$LP_DEST"
-
-EXTENSIONS_DIR="$CFG/Extensions"
-mkdir -p "$EXTENSIONS_DIR"
-cp "$REPO/hazy/extensions/download.js" "$EXTENSIONS_DIR/download.js"
-cp "$REPO/hazy/extensions/link-import.js" "$EXTENSIONS_DIR/link-import.js"
-
-PREV_THEME=$(spicetify config current_theme 2>/dev/null | xargs)
-CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
-mkdir -p "$CUSTOM_DIR" "$CUSTOM_DIR/dependencies" "$CUSTOM_DIR/scripts" "$CUSTOM_DIR/data" "$CUSTOM_DIR/cache"
-cp "$REPO/hazy/extensions/repair-spicetify.py" "$CUSTOM_DIR/scripts/repair-spicetify.py"
-PREV_THEME_FILE="$CUSTOM_DIR/data/prev-theme.txt"
-if [ -n "$PREV_THEME" ] && [ "$PREV_THEME" != "Hazy" ] && [ ! -f "$PREV_THEME_FILE" ]; then
-    echo "$PREV_THEME" > "$PREV_THEME_FILE"
+for file in setup-downloader.sh setup-downloader.py downloader-requirements.txt install-state.py; do cp "$repo/hazy/extensions/$file" "$root/scripts/$file"; done
+bash "$root/scripts/setup-downloader.sh" "$root"
+python="$root/dependencies/downloader/bin/python"
+"$python" "$root/scripts/install-state.py" stop "$root"
+pkill -x Spotify 2>/dev/null || true
+existed=true
+if ! command -v spicetify >/dev/null 2>&1; then
+    curl -fL --retry 2 https://raw.githubusercontent.com/spicetify/cli/main/install.sh -o "$temporary/spicetify-install.sh"
+    sed -i '' '/Do you want to install spicetify Marketplace/,/spicetify-marketplace/d' "$temporary/spicetify-install.sh"
+    "$python" "$repo/hazy/extensions/install-spicetify-mac.py" "$root" "$temporary/spicetify-install.sh"
+    existed=false
 fi
-
-cat > "$CUSTOM_DIR/data/spicetify-status.txt" << 'STATUSEOF'
-spicetify-existed-before=PLACEHOLDER
-
-this file tells the uninstall script whether spicetify was already on your mac before you installed spotify remastered.
-if the value above is false, the uninstall script will fully remove spicetify from your system.
-if the value above is true, the uninstall script will only remove the hazy theme and lyrics-plus custom app, keeping your spicetify installation intact.
-STATUSEOF
-sed -i '' "s/spicetify-existed-before=PLACEHOLDER/spicetify-existed-before=$SPICETIFY_EXISTED_BEFORE/" "$CUSTOM_DIR/data/spicetify-status.txt"
-
-cat > "$CUSTOM_DIR/about-this-folder.txt" << 'EOF'
-this folder is used by spotify remastered. please do not delete it or its required files while spotify remastered is installed.
-
-here is what each file and folder does (optional items may not be present):
-
-- dependencies: download tools and their runtime dependencies.
-- scripts: background helpers and their launchers.
-- data: installer records needed to restore your previous setup.
-- cache: temporary download jobs, troubleshooting logs and saved-file indexes.
-- dependencies/spotdl: standalone song downloader.
-- dependencies/ffmpeg: converts audio to mp3; copied from an existing compatible installation or downloaded if missing.
-- dependencies/downloader: optional python downloader environment; required for the enhanced download fallback when present.
-- scripts/download-helper.sh: handles download requests on port 27382 and song folder selection.
-- scripts/download-playlist.py: handles playlist/album jobs, progress, cancellation and saved-file verification; requires python 3.
-- scripts/download-runner.py: adds alternate-upload fallback when the python downloader is installed.
-- scripts/repair-spicetify.py: preserves the scrolling compatibility fix when spicetify is applied or updated.
-- scripts/link-helper.py: downloads youtube/soundcloud audio into local songs and tracks import jobs; requires python 3.
-- scripts/setup-link-tools.py: reuses compatible installed tools and installs missing download tools into dependencies.
-- dependencies/yt-dlp: optional managed link downloader, used when no compatible installed copy is available.
-- dependencies/deno: optional javascript runtime, used when no compatible installed deno or node is available.
-- data/download-tools.json: records the download tools selected on this computer.
-- data/import-index: records source links and their saved mp3 files so repeat imports reuse existing audio; keep it.
-- cache/import-logs: temporary link import jobs and diagnostic logs, limited to 20 inactive jobs and 7 days; saved songs are stored separately.
-- scripts/spotify-remastered-updater.sh: reapplies spicetify after spotify updates.
-- data/spicetify-status.txt: records whether spicetify existed before installation for safe uninstall.
-- data/prev-theme.txt: optional previous-theme record for restoration during uninstall.
-- cache/playlist-jobs: download job records and logs, plus indexes that detect already-saved songs. keep the saved-file indexes.
-- com.spotify-remastered.updater.plist: login agent stored in your library/launchagents folder, outside this folder.
-- com.spotify-remastered.download-helper.plist: download-listener agent stored in library/launchagents, outside this folder.
-- local songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
-- about-this-folder.txt: this file.
-EOF
-
-PREMIUM_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
-
-SPOTX_FLAGS="-h"
-if [ "$PREMIUM_ANSWER" = "Yes" ]; then
-    SPOTX_FLAGS="-h -p"
-fi
-bash <(curl -sSL https://spotx-official.github.io/run.sh) -f $SPOTX_FLAGS || true
-
-spicetify config inject_css 1
-spicetify config replace_colors 1
-spicetify config overwrite_assets 1
-spicetify config inject_theme_js 1
-spicetify config current_theme Hazy
-spicetify config custom_apps lyrics-plus
-spicetify restore 2>/dev/null || true
-python3 "$HOME/.local/share/spotify-remastered/scripts/repair-spicetify.py"
-spicetify backup apply
-spicetify apply
-
-LAUNCH_ANSWER=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")' 2>/dev/null || echo "No")
-
-HELPER_SCRIPT="$CUSTOM_DIR/scripts/spotify-remastered-updater.sh"
-cat > "$HELPER_SCRIPT" << 'HELPEREOF'
-#!/bin/bash
-sleep 10
-SPICE=$(command -v spicetify 2>/dev/null)
-if [ -n "$SPICE" ]; then
-    "$SPICE" upgrade &
-    UPGRADE_PID=$!
-    ( sleep 60; kill "$UPGRADE_PID" 2>/dev/null ) &
-    TIMER_PID=$!
-    wait "$UPGRADE_PID" 2>/dev/null || true
-    kill "$TIMER_PID" 2>/dev/null || true
-fi
-pkill -9 -xi spotify >/dev/null 2>&1 || true
-python3 "$HOME/.local/share/spotify-remastered/scripts/repair-spicetify.py"
-spicetify backup apply
-sleep 5
-HELPEREOF
-
-if [ "$LAUNCH_ANSWER" != "Yes" ]; then
-    echo 'pkill -9 -xi spotify >/dev/null 2>&1 || true' >> "$HELPER_SCRIPT"
-fi
-
-chmod +x "$HELPER_SCRIPT"
-
-PLIST_NAME="com.spotify-remastered.updater"
-PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
-mkdir -p "$HOME/Library/LaunchAgents"
-
-launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null || true
-cat > "$PLIST_PATH" << PLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$PLIST_NAME</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>$HELPER_SCRIPT</string>
-    </array>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/spotify-remastered-updater.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/spotify-remastered-updater.log</string>
-</dict>
-</plist>
-PLISTEOF
-launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH" 2>/dev/null || launchctl load "$PLIST_PATH" 2>/dev/null || true
-
-if ! command -v python3 >/dev/null 2>&1; then
-    if command -v brew >/dev/null 2>&1; then brew install python; else
-        echo 'Python 3 is required. Install Python 3 and rerun the installer.' >&2
-        exit 1
-    fi
-fi
-SPOTDL_URL=$(curl -s https://api.github.com/repos/spotDL/spotify-downloader/releases/latest \
-    | python3 -c "import json,sys; [print(a['browser_download_url']) for a in json.load(sys.stdin)['assets'] if 'darwin' in a['name']]" 2>/dev/null || true)
-if [ -n "$SPOTDL_URL" ]; then
-    curl -L -o "$CUSTOM_DIR/dependencies/spotdl" "$SPOTDL_URL"
-    chmod +x "$CUSTOM_DIR/dependencies/spotdl"
-fi
-
-cp "$REPO/hazy/extensions/download-helper.sh" "$CUSTOM_DIR/scripts/download-helper.sh"
-cp "$REPO/hazy/extensions/download-playlist.py" "$CUSTOM_DIR/scripts/download-playlist.py"
-cp "$REPO/hazy/extensions/download-runner.py" "$CUSTOM_DIR/scripts/download-runner.py"
-python3 -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$CUSTOM_DIR/scripts/download-playlist.py"
-cp "$REPO/hazy/extensions/link-helper.py" "$CUSTOM_DIR/scripts/link-helper.py"
-cp "$REPO/hazy/extensions/setup-link-tools.py" "$CUSTOM_DIR/scripts/setup-link-tools.py"
-python3 "$CUSTOM_DIR/scripts/setup-link-tools.py"
-chmod +x "$CUSTOM_DIR/scripts/download-helper.sh"
-
-DL_PLIST_NAME="com.spotify-remastered.download-helper"
-DL_PLIST_PATH="$HOME/Library/LaunchAgents/$DL_PLIST_NAME.plist"
-launchctl bootout "gui/$(id -u)/$DL_PLIST_NAME" 2>/dev/null || launchctl unload "$DL_PLIST_PATH" 2>/dev/null || true
-cat > "$DL_PLIST_PATH" << DLPLISTEOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>$DL_PLIST_NAME</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/bin/bash</string>
-        <string>$CUSTOM_DIR/scripts/download-helper.sh</string>
-    </array>
-    <key>inetdCompatibility</key>
-    <dict>
-        <key>Wait</key>
-        <false/>
-    </dict>
-    <key>Sockets</key>
-    <dict>
-        <key>Listeners</key>
-        <dict>
-            <key>SockServiceName</key>
-            <string>27382</string>
-            <key>SockType</key>
-            <string>stream</string>
-        </dict>
-    </dict>
-</dict>
-</plist>
-DLPLISTEOF
-launchctl bootstrap "gui/$(id -u)" "$DL_PLIST_PATH" 2>/dev/null || launchctl load "$DL_PLIST_PATH" 2>/dev/null || true
-
-spicetify config extensions download.js
-spicetify config extensions link-import.js
-
-rm -f "$TEMP_ZIP"
-rm -rf "$TEMP_EXTRACT"
-
-spicetify apply
-
-kill "$KILL_PID" >/dev/null 2>&1 || true
-wait "$KILL_PID" >/dev/null 2>&1 || true
-
+spice=$(command -v spicetify)
+"$spice" >/dev/null
+config=$("$spice" -c)
+cfg=$(dirname "$config")
+"$python" "$root/scripts/install-state.py" capture "$root" "$cfg" "$existed"
+if [ ! -f "$root/data/spicetify-status.txt" ]; then printf 'spicetify-existed-before=%s\n' "$existed" > "$root/data/spicetify-status.txt"; fi
+"$python" - "$cfg" "$repo" <<'PY'
+import shutil, sys
+from pathlib import Path
+cfg, repo = map(Path, sys.argv[1:])
+for relative, source in [('Themes/Hazy', repo/'hazy'), ('CustomApps/lyrics-plus', repo/'lyrics-plus')]:
+    target = cfg/relative
+    if target.is_symlink() or not target.resolve().is_relative_to(cfg.resolve()): raise RuntimeError('Invalid installation destination')
+    if target.exists(): shutil.rmtree(target)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, target)
+(cfg/'Extensions').mkdir(exist_ok=True)
+for name in ['download.js','link-import.js']: shutil.copy2(repo/'hazy/extensions'/name, cfg/'Extensions'/name)
+shutil.copy2(repo/'lyrics-plus/components/PlaybarButton.js', cfg/'Extensions/lyrics-plus-button.js')
+PY
+for file in download-helper.sh download-playlist.py download-runner.py link-helper.py setup-link-tools.py repair-spicetify.py update-spicetify.py; do
+    cp "$repo/hazy/extensions/$file" "$root/scripts/$file"
+done
+"$python" -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$root/scripts/download-playlist.py"
+"$python" "$root/scripts/setup-link-tools.py"
+spotify=$("$python" - "$config" <<'PY'
+import configparser, sys
+c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','spotify_path'))
+PY
+)
+if [ -f "$cfg/Backup/xpui.spa" ]; then "$spice" restore; fi
+"$python" "$root/scripts/install-state.py" spotx-before "$root" "$spotify"
+premium=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")')
+flags=(-h)
+[ "$premium" = Yes ] && flags+=(-p)
+curl -fL --retry 2 https://spotx-official.github.io/run.sh -o "$temporary/spotx.sh"
+bash "$temporary/spotx.sh" -f "${flags[@]}"
+"$python" "$root/scripts/install-state.py" spotx-after "$root" "$spotify"
+for key in inject_css replace_colors overwrite_assets inject_theme_js; do "$spice" config "$key" 1; done
+"$spice" config current_theme Hazy
+"$spice" config custom_apps lyrics-plus
+for extension in download.js link-import.js lyrics-plus-button.js; do "$spice" config extensions "$extension"; done
+"$python" "$root/scripts/repair-spicetify.py"
+"$spice" backup apply
+launch=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")')
+"$python" - "$root" "$spice" "$launch" "$PATH" <<'PY'
+import plistlib, sys
+from pathlib import Path
+root=Path(sys.argv[1]); python=str(root/'dependencies/downloader/bin/python')
+agents=Path.home()/'Library/LaunchAgents'; agents.mkdir(parents=True,exist_ok=True)
+env={'PATH':sys.argv[4], 'SR_PYTHON':python}
+items=[{'Label':'com.spotify-remastered.download-helper','ProgramArguments':['/bin/bash',str(root/'scripts/download-helper.sh')],
+        'EnvironmentVariables':env,'inetdCompatibility':{'Wait':False},
+        'Sockets':{'Listeners':{'SockNodeName':'127.0.0.1','SockServiceName':'27382','SockType':'stream'}}},
+       {'Label':'com.spotify-remastered.updater','ProgramArguments':[python,str(root/'scripts/update-spicetify.py'),sys.argv[2],sys.argv[3].lower()],
+        'EnvironmentVariables':env,'RunAtLoad':False,'StartInterval':86400}]
+for item in items:
+    with (agents/(item['Label']+'.plist')).open('wb') as output: plistlib.dump(item,output)
+PY
+for agent in com.spotify-remastered.download-helper com.spotify-remastered.updater; do
+    plist="$HOME/Library/LaunchAgents/$agent.plist"
+    plutil -lint "$plist" >/dev/null
+    launchctl bootstrap "gui/$(id -u)" "$plist"
+done
+"$python" - "$HOME/Library/LaunchAgents/com.spotify-remastered.updater.plist" <<'PY'
+import plistlib,sys
+# the loaded job stays idle during setup; the next login loads runatload.
+path=sys.argv[1]
+with open(path,'rb') as source: settings=plistlib.load(source)
+settings['RunAtLoad']=True
+settings.pop('StartInterval',None)
+with open(path,'wb') as output: plistlib.dump(settings,output)
+PY
+"$python" - <<'PY'
+import json,time
+from urllib.request import urlopen
+for attempt in range(20):
+    try:
+        with urlopen('http://127.0.0.1:27382/health',timeout=2) as response:
+            if json.load(response).get('service')=='spotify-remastered': break
+    except OSError: pass
+    time.sleep(.5)
+else: raise RuntimeError('The download listener did not start; installation records were kept for repair.')
+PY
+cp "$repo/hazy/extensions/about-this-folder.txt" "$root/about-this-folder.txt"
 open -a Spotify
-
-echo ""
-echo "============================================"
-echo "  Spotify Remastered installed successfully!"
-echo "  You can close this window now."
-echo "============================================"
-echo ""
+echo 'Spotify Remastered installed successfully.'

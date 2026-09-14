@@ -1,104 +1,65 @@
 #!/bin/bash
-set -e
-
-get_spicetify_config_dir() {
-    if [ -n "$SPICETIFY_CONFIG" ] && [ -d "$SPICETIFY_CONFIG" ]; then echo "$SPICETIFY_CONFIG"; return; fi
-    local p
-    p=$(spicetify path userdata 2>/dev/null | tail -1)
-    p=$(echo "$p" | xargs)
-    if [ -n "$p" ] && [ -d "$p" ]; then echo "$p"; return; fi
-    local candidates=("$HOME/.config/spicetify" "$HOME/.spicetify")
-    for c in "${candidates[@]}"; do
-        if [ -f "$c/config-xpui.ini" ]; then echo "$c"; return; fi
-    done
-    for c in "${candidates[@]}"; do
-        if [ -d "$c" ]; then echo "$c"; return; fi
-    done
-    echo ""
-}
-
-pkill -9 -xi spotify >/dev/null 2>&1 || true
-
-(while true; do 
-    pkill -9 -xi spotify >/dev/null 2>&1 || true
-    sleep 0.1
-done) </dev/null >/dev/null 2>&1 &
-KILL_PID=$!
-
-cleanup() {
-    kill "$KILL_PID" >/dev/null 2>&1 || true
-}
-trap cleanup EXIT
-
-CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
-STATUS_FILE="$CUSTOM_DIR/data/spicetify-status.txt"
-[ ! -f "$STATUS_FILE" ] && STATUS_FILE="$CUSTOM_DIR/spicetify-status.txt"
-FULL_WIPE=false
-if [ -f "$STATUS_FILE" ]; then
-    if grep -qi 'spicetify-existed-before=false' "$STATUS_FILE"; then
-        FULL_WIPE=true
-    fi
+set -euo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:$HOME/.spicetify:$PATH"
+root="$HOME/.local/share/spotify-remastered"
+python="$root/dependencies/downloader/bin/python"
+state="$root/scripts/install-state.py"
+if [ ! -x "$python" ] || [ ! -f "$state" ]; then
+    echo 'The restoration tools are missing. Repair setup before uninstalling; no user files were deleted.' >&2
+    exit 1
 fi
-PREV_THEME_FILE="$CUSTOM_DIR/data/prev-theme.txt"
-[ ! -f "$PREV_THEME_FILE" ] && PREV_THEME_FILE="$CUSTOM_DIR/prev-theme.txt"
-PREV_THEME=""
-if [ -f "$PREV_THEME_FILE" ]; then
-    PREV_THEME=$(cat "$PREV_THEME_FILE" | xargs)
+spice=$(command -v spicetify)
+config=$("$spice" -c)
+cfg=$(dirname "$config")
+"$python" "$state" capture "$root" "$cfg" true
+for agent in com.spotify-remastered.updater com.spotify-remastered.download-helper; do
+    if launchctl print "gui/$(id -u)/$agent" >/dev/null 2>&1; then launchctl bootout "gui/$(id -u)/$agent"; fi
+    rm -f "$HOME/Library/LaunchAgents/$agent.plist"
+done
+"$python" "$state" stop "$root"
+pkill -x Spotify 2>/dev/null || true
+spotify=$("$python" - "$config" <<'PY'
+import configparser, sys
+c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','spotify_path'))
+PY
+)
+"$spice" restore
+"$python" "$state" restore "$root" "$cfg"
+"$python" "$root/scripts/repair-spicetify.py" --restore
+"$python" "$state" spotx-restore "$root" "$spotify"
+existed=$("$python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["existed"])' "$root/data/install-state.json")
+if [ "$existed" = True ]; then
+    "$spice" backup apply
+else
+    "$python" - "$spice" "$cfg" "$root" <<'PY'
+import collections, json, shutil, sys
+from pathlib import Path
+binary=Path(sys.argv[1]).resolve().parent; cfg=Path(sys.argv[2]).resolve()
+allowed=[Path.home()/'.spicetify',Path.home()/'.local/share/spicetify']
+if binary not in allowed: raise RuntimeError('Custom CLI installation retained; Spotify has been restored.')
+for path in dict.fromkeys([cfg,binary]):
+    if path not in [*allowed,Path.home()/'.config/spicetify']: raise RuntimeError('Custom configuration retained for manual cleanup.')
+    if path.exists(): shutil.rmtree(path)
+record=Path(sys.argv[3])/'data/spicetify-profile-lines.json'
+if record.exists():
+    for name, additions in json.loads(record.read_text()).items():
+        if name not in ['.zshrc','.bashrc','.bash_profile','.profile']: continue
+        path=Path.home()/name
+        if not path.exists(): continue
+        remaining=collections.Counter(additions); lines=[]
+        for line in path.read_text().splitlines(keepends=True):
+            key=line.rstrip('\r\n')
+            if remaining[key]: remaining[key]-=1
+            else: lines.append(line)
+        path.write_text(''.join(lines))
+PY
 fi
-
-PLIST_NAME="com.spotify-remastered.updater"
-PLIST_PATH="$HOME/Library/LaunchAgents/$PLIST_NAME.plist"
-launchctl bootout "gui/$(id -u)/$PLIST_NAME" 2>/dev/null || launchctl unload "$PLIST_PATH" 2>/dev/null || true
-rm -f "$PLIST_PATH"
-DL_PLIST_NAME="com.spotify-remastered.download-helper"
-launchctl bootout "gui/$(id -u)/$DL_PLIST_NAME" 2>/dev/null || true
-rm -f "$HOME/Library/LaunchAgents/$DL_PLIST_NAME.plist"
-rm -rf "$CUSTOM_DIR"
-
-if command -v spicetify &>/dev/null; then
-    spicetify restore
-    CFG=$(get_spicetify_config_dir)
-    if [ -n "$CFG" ]; then
-        rm -rf "$CFG/Themes/Hazy"
-        rm -rf "$CFG/CustomApps/lyrics-plus"
-    fi
-    spicetify config custom_apps lyrics-plus-
-    if [ -n "$PREV_THEME" ]; then
-        spicetify config current_theme "$PREV_THEME"
-    else
-        spicetify config current_theme " "
-        spicetify config inject_theme_js 0
-    fi
-    spicetify apply
-
-    if [ "$FULL_WIPE" = true ]; then
-        spicetify restore backup 2>/dev/null || true
-        rm -rf "$HOME/.config/spicetify"
-        rm -rf "$HOME/.spicetify"
-        rm -rf "$HOME/.local/share/spicetify"
-
-        SPICE_BIN=$(command -v spicetify 2>/dev/null)
-        if [ -n "$SPICE_BIN" ]; then rm -f "$SPICE_BIN"; fi
-
-        CLEANED_PATH=$(echo "$PATH" | tr ':' '\n' | grep -iv spicetify | paste -sd ':' -)
-        export PATH="$CLEANED_PATH"
-        if [ -f "$HOME/.zshrc" ]; then
-            sed -i '' '/spicetify/d' "$HOME/.zshrc" 2>/dev/null || true
-        fi
-        if [ -f "$HOME/.bashrc" ]; then
-            sed -i '' '/spicetify/d' "$HOME/.bashrc" 2>/dev/null || true
-        fi
-        if [ -f "$HOME/.bash_profile" ]; then
-            sed -i '' '/spicetify/d' "$HOME/.bash_profile" 2>/dev/null || true
-        fi
-    fi
-fi
-
-kill "$KILL_PID" >/dev/null 2>&1 || true
-wait "$KILL_PID" >/dev/null 2>&1 || true
-
-sleep 1
-pkill -9 -xi spotify >/dev/null 2>&1 || true
-
-nohup bash -c "sleep 0.5; osascript -e 'tell application \"Terminal\" to close front window'" >/dev/null 2>&1 &
-exit 0
+"$python" "$state" complete "$root"
+"$python" - "$root" <<'PY'
+import shutil,sys
+from pathlib import Path
+root=Path(sys.argv[1]).resolve(); scripts=root/'scripts'
+if scripts.is_symlink() or not scripts.resolve().is_relative_to(root): raise RuntimeError('Invalid script directory')
+shutil.rmtree(scripts)
+PY
+echo 'Spotify Remastered removed. local songs, indexes, reusable dependencies and recovery records were preserved.'

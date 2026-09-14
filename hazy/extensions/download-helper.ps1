@@ -358,6 +358,7 @@ try { while ($listener.IsListening) {
     }
 
     switch ($route) {
+        '/health' { Respond $ctx '{"status":"ready","service":"spotify-remastered"}' }
         "/open-folder" {
             try {
                 $id = $ctx.Request.QueryString['id']

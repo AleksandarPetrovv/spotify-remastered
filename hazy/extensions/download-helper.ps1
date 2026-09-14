@@ -38,11 +38,59 @@ function Stop-Download($dl) {
     }
 }
 
+function Get-DownloadIndexPath($folder, $jobsDir) {
+    $directory = Join-Path $jobsDir 'playlist-index'
+    New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $key = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(([IO.Path]::GetFullPath($folder)).ToLowerInvariant()))).Replace('-', '') }
+    finally { $sha.Dispose() }
+    return Join-Path $directory ($key + '.json')
+}
+
+function Read-DownloadIndex($path) {
+    $index = @{}
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try {
+            $stored = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+            foreach ($property in $stored.PSObject.Properties) {
+                $name = [string]$property.Value
+                if ($name -and [IO.Path]::GetFileName($name) -ceq $name -and [IO.Path]::GetExtension($name) -ieq '.mp3') { $index[$property.Name] = $name }
+            }
+        } catch {}
+    }
+    return $index
+}
+
+function Save-DownloadIndex($path, $index) {
+    $temporary = $path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temporary, ($index | ConvertTo-Json -Compress), (New-Object Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temporary -Destination $path -Force -ErrorAction Stop
+    } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
+}
+
+function Move-DownloadAudio($source, $folder, $name) {
+    $base = [IO.Path]::GetFileNameWithoutExtension($name)
+    $suffix = 2
+    while ($true) {
+        $destination = Join-Path $folder $name
+        try {
+            [IO.File]::Move($source, $destination)
+            return $name
+        } catch [IO.IOException] {
+            if (-not (Test-Path -LiteralPath $destination)) { throw }
+            $name = $base + ' (' + $suffix + ').mp3'
+            $suffix++
+        }
+    }
+}
+
 function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName = $null) {
     if ($trackId -notmatch '^[a-zA-Z0-9]{22}$') { throw 'Invalid Spotify track ID.' }
     if (-not (Test-Path -LiteralPath $spotdl -PathType Leaf)) { throw 'The song downloader is missing. Please reinstall Spotify Remastered.' }
     if (-not (Test-Path -LiteralPath $ffmpeg -PathType Leaf)) { throw 'FFmpeg is missing.' }
     if (-not (Test-Path -LiteralPath $folder -PathType Container)) { throw 'The download folder does not exist.' }
+    $indexPath = if (-not $fileName) { Get-DownloadIndexPath $folder $jobsDir } else { $null }
     $jobDir = Join-Path $jobsDir ([Guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $jobDir -Force | Out-Null
     # relative output avoids spotdl sanitizing dots in parent directory names.
@@ -72,7 +120,8 @@ function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName
     $processHandle = $proc.Handle
     $result = @{ Process = $proc; Status = 'downloading'; Message = $null; StartedAt = [DateTime]::UtcNow;
         JobDir = $jobDir; Folder = $folder; FileName = $fileName; TimeoutSeconds = 600; CompletedAt = $null;
-        SharedWorker = $executable -eq $python; WorkerStarted = $false; Stdout = $stdout; Stderr = $stderr }
+        SharedWorker = $executable -eq $python; WorkerStarted = $false; Stdout = $stdout; Stderr = $stderr;
+        TrackId = $trackId; IndexPath = $indexPath }
     return $result
 }
 
@@ -91,14 +140,19 @@ function Update-Download($dl) {
         }
         # spotdl can exit zero after provider errors; require audio from this job.
         $files = @(Get-ChildItem -LiteralPath $dl.JobDir -File -Filter '*.mp3' | Where-Object { $_.Length -gt 0 })
-        if ($dl.Process.ExitCode -ne 0 -or $files.Count -eq 0) {
+        if ($dl.Process.ExitCode -ne 0 -or $files.Count -ne 1) {
             $dl.Status = 'error'
             $dl.Message = 'The song could not be downloaded. Please try again; details are in the download logs.'
         } else {
             try {
                 foreach ($file in $files) {
                     $name = if ($dl.FileName) { $dl.FileName } else { $file.Name }
-                    Move-Item -LiteralPath $file.FullName -Destination (Join-Path $dl.Folder $name) -Force -ErrorAction Stop
+                    $dl.FileName = Move-DownloadAudio $file.FullName $dl.Folder $name
+                }
+                if ($dl.IndexPath) {
+                    $index = Read-DownloadIndex $dl.IndexPath
+                    $index[$dl.TrackId] = $dl.FileName
+                    try { Save-DownloadIndex $dl.IndexPath $index } catch {}
                 }
                 $dl.Status = 'done'
             } catch {
@@ -120,6 +174,14 @@ function Update-Singles {
     $next = $script:downloads.Values | Where-Object { $_.Status -eq 'queued' } | Sort-Object Order | Select-Object -First 1
     if (-not $next) { return }
     try {
+        $index = Read-DownloadIndex (Get-DownloadIndexPath $next.Folder $next.Tools.JobsDir)
+        if ($index.ContainsKey($next.Id)) {
+            $file = Get-Item -LiteralPath (Join-Path $next.Folder $index[$next.Id]) -ErrorAction SilentlyContinue
+            if ($file -and -not $file.PSIsContainer -and $file.Length -gt 0 -and -not ($file.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+                $next.Status = 'done'; $next.CompletedAt = [DateTime]::UtcNow
+                return
+            }
+        }
         $script:downloads[$next.Id] = Start-Download $next.Id $next.Folder $next.Tools.Spotdl $next.Tools.FFmpeg $next.Tools.JobsDir
     } catch {
         $next.Status = 'error'
@@ -192,23 +254,14 @@ function Start-Playlist($body, $folder, $tools) {
     }
     $destination = Join-Path $folder (Safe-Name $body.name)
     New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
-    $indexDir = Join-Path $tools.JobsDir 'playlist-index'
-    New-Item -ItemType Directory -Path $indexDir -Force | Out-Null
-    $sha = [System.Security.Cryptography.SHA256]::Create()
-    try { $key = [BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($destination.ToLowerInvariant()))).Replace('-', '') }
-    finally { $sha.Dispose() }
-    $indexPath = Join-Path $indexDir ($key + '.json')
-    $index = @{}
-    if (Test-Path -LiteralPath $indexPath) {
-        try {
-            $stored = Get-Content -LiteralPath $indexPath -Raw -Encoding UTF8 | ConvertFrom-Json
-            foreach ($property in $stored.PSObject.Properties) {
-                if ([System.IO.Path]::GetFileName([string]$property.Value) -eq $property.Value) { $index[$property.Name] = [string]$property.Value }
-            }
-        } catch {}
-    }
+    $indexPath = Get-DownloadIndexPath $destination $tools.JobsDir
+    $index = Read-DownloadIndex $indexPath
     $reserved = @{}
-    foreach ($id in $index.Keys) { $reserved[$index[$id]] = $id }
+    foreach ($id in $index.Keys) {
+        $name = $index[$id]
+        if ($reserved.ContainsKey($name)) { $reserved[$name] = $null }
+        else { $reserved[$name] = $id }
+    }
     $queue = New-Object System.Collections.Queue
     $seen = @{}
     $skipped = 0
@@ -218,13 +271,16 @@ function Start-Playlist($body, $folder, $tools) {
         $base = Safe-Name $track.name
         $name = if ($index.ContainsKey($track.id)) { $index[$track.id] } else { $base + '.mp3' }
         $suffix = 2
-        while ($reserved.ContainsKey($name) -and $reserved[$name] -ne $track.id) {
+        $indexed = $index.ContainsKey($track.id)
+        while (($reserved.ContainsKey($name) -and $reserved[$name] -ne $track.id) -or
+               ((Test-Path -LiteralPath (Join-Path $destination $name)) -and (-not $indexed -or $index[$track.id] -cne $name))) {
             $name = $base + ' (' + $suffix + ').mp3'
             $suffix++
         }
         $reserved[$name] = $track.id
         $path = Join-Path $destination $name
-        if ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Item -LiteralPath $path).Length -gt 0) { $index[$track.id] = $name; $skipped++; continue }
+        $existing = Get-Item -LiteralPath $path -ErrorAction SilentlyContinue
+        if ($indexed -and $index[$track.id] -ceq $name -and $existing -and -not $existing.PSIsContainer -and $existing.Length -gt 0 -and -not ($existing.Attributes -band [IO.FileAttributes]::ReparsePoint)) { $skipped++; continue }
         $queue.Enqueue(@{ Id = $track.id; Name = $track.name; FileName = $name; Local = $track.id -like 'spotify:local:*'; LocalFile = $track.localFile })
     }
     return @{ Status = 'downloading'; Queue = $queue; Active = @{}; Saved = 0; Skipped = $skipped;
@@ -244,7 +300,7 @@ function Update-Playlist($batch) {
                 $source = Get-Item -LiteralPath (Join-Path (Join-Path $env:LOCALAPPDATA 'spotify-remastered\local songs') $name) -ErrorAction Stop
                 if ($source.PSIsContainer -or $source.Length -eq 0 -or ($source.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'The local MP3 is missing or unavailable.' }
                 [IO.File]::Copy($source.FullName, $temporary, $false)
-                [IO.File]::Move($temporary, (Join-Path $batch.Folder $entry.Track.FileName))
+                $entry.Track.FileName = Move-DownloadAudio $temporary $batch.Folder $entry.Track.FileName
                 $entry.Download.Status = 'done'
             } catch {
                 $entry.Download.Status = 'error'
@@ -253,9 +309,10 @@ function Update-Playlist($batch) {
         } else { Update-Download $entry.Download }
         if ($entry.Download.Status -eq 'downloading') { continue }
         if ($entry.Download.Status -eq 'done') {
+            if (-not $entry.Track.Local) { $entry.Track.FileName = $entry.Download.FileName }
             $batch.Saved++
             $batch.Index[$id] = $entry.Track.FileName
-            try { $batch.Index | ConvertTo-Json -Compress | Set-Content -LiteralPath $batch.IndexPath -Encoding UTF8 -ErrorAction Stop } catch {}
+            try { Save-DownloadIndex $batch.IndexPath $batch.Index } catch {}
         }
         else { $batch.Failed.Add(@{ id = $id; name = $entry.Track.Name; message = $entry.Download.Message }) | Out-Null }
         $batch.Active.Remove($id)

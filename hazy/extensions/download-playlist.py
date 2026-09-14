@@ -12,6 +12,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 from urllib.request import urlopen
 import platform
+import unicodedata
 
 
 ROOT = Path.home() / '.local/share/spotify-remastered'
@@ -47,6 +48,47 @@ def safe_name(name):
     return name or 'Playlist'
 
 
+def filename_key(name):
+    return unicodedata.normalize('NFD', name).casefold()
+
+
+def reserve_name(folder, base, identifier, index, reserved):
+    indexed = index.get(identifier)
+    name = indexed or base + '.mp3'
+    suffix = 2
+    while True:
+        key = filename_key(name)
+        target = folder / name
+        known = indexed == name and reserved.get(key) == identifier
+        reusable = known and target.is_file() and not target.is_symlink() and target.stat().st_size > 0
+        if reserved.get(key, identifier) == identifier and (not target.exists() and not target.is_symlink() or reusable):
+            reserved[key] = identifier
+            return target, reusable
+        name = base + ' (' + str(suffix) + ').mp3'
+        suffix += 1
+
+
+def place_audio(source, target, remove_source=True):
+    base = target.stem
+    suffix = 2
+    while True:
+        created = False
+        try:
+            with source.open('rb') as incoming, target.open('xb') as outgoing:
+                created = True
+                shutil.copyfileobj(incoming, outgoing)
+            if remove_source:
+                source.unlink()
+            return target
+        except FileExistsError:
+            target = target.with_name(base + ' (' + str(suffix) + ').mp3')
+            suffix += 1
+        except Exception:
+            if created:
+                target.unlink(missing_ok=True)
+            raise
+
+
 def write_json(path, value):
     temp = path.with_suffix('.tmp')
     temp.write_text(json.dumps(value), encoding='utf-8')
@@ -62,6 +104,48 @@ def terminate(process):
         process.wait()
 
 
+def cleanup_jobs():
+    JOBS.mkdir(parents=True, exist_ok=True)
+    marker = JOBS / 'cleanup-at'
+    now = time.time()
+    if marker.exists() and now - marker.stat().st_mtime < 600:
+        return
+    marker.touch()
+    inactive = []
+    for job in JOBS.iterdir():
+        if not job.is_dir() or job.is_symlink() or not re.fullmatch(r'[a-f0-9]{32}', job.name):
+            continue
+        try:
+            state = json.loads((job / 'status.json').read_text())
+            if state.get('status') == 'downloading':
+                pid = int(json.loads((job / 'pid.json').read_text())['pid'])
+                if pid <= 0:
+                    continue
+                try:
+                    os.kill(pid, 0)
+                    continue
+                except ProcessLookupError:
+                    pass
+            inactive.append(job)
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    inactive.sort(key=lambda job: job.stat().st_mtime, reverse=True)
+    removed = set()
+    for index, job in enumerate(inactive):
+        if index >= 20 or now - job.stat().st_mtime > 7 * 86400:
+            if job.resolve().parent == JOBS.resolve():
+                shutil.rmtree(job)
+                removed.add(str(job))
+    for pointer in JOBS.glob('*.json'):
+        if not re.fullmatch(r'(?:single-|album-)?[A-Za-z0-9]{22}', pointer.stem):
+            continue
+        try:
+            if json.loads(pointer.read_text()).get('job') in removed:
+                pointer.unlink()
+        except (OSError, ValueError):
+            continue
+
+
 def worker(job):
     config = json.loads((job / 'request.json').read_text())
     state = {'status': 'downloading', 'saved': 0, 'skipped': 0, 'failed': [],
@@ -73,24 +157,25 @@ def worker(job):
     index_path = JOBS / (hashlib.sha256(str(folder).encode('utf-8')).hexdigest() + '.files.json')
     try:
         index = json.loads(index_path.read_text())
-        index = {key: value for key, value in index.items() if Path(value).name == value}
-    except (OSError, ValueError):
+        index = {key: value for key, value in index.items()
+                 if isinstance(value, str) and value and Path(value).name == value and Path(value).suffix.lower() == '.mp3'}
+    except (OSError, ValueError, AttributeError):
         index = {}
-    reserved = {value: key for key, value in index.items()}
+    reserved = {}
+    for identifier, name in index.items():
+        key = filename_key(name)
+        reserved[key] = identifier if key not in reserved else None
     try:
         for track in config['tracks']:
             base = safe_name(track['name'])
-            name = index.get(track['id'], base + '.mp3')
-            suffix = 2
-            while name in reserved and reserved[name] != track['id']:
-                name = base + ' (' + str(suffix) + ').mp3'
-                suffix += 1
-            reserved[name] = track['id']
-            target = folder / name
-            if track['id'] in seen or (target.is_file() and target.stat().st_size > 0):
+            if track['id'] in seen:
                 state['skipped'] += 1
             else:
-                queue.append((track, target))
+                target, reusable = reserve_name(folder, base, track['id'], index, reserved)
+                if reusable:
+                    state['skipped'] += 1
+                else:
+                    queue.append((track, target))
             seen.add(track['id'])
         ffmpeg = managed_ffmpeg() if any(not track['id'].startswith('spotify:local:') for track, target in queue) else None
         while queue or active:
@@ -103,18 +188,13 @@ def worker(job):
                     state['current'] = [track['name']]
                     state['currentIds'] = [track['id']]
                     write_json(job / 'status.json', state)
-                    created = False
-                    copied = False
                     try:
                         name = track.get('localFile', '')
                         root = ROOT / 'local songs'
                         source = root / name
                         if not name or Path(name).name != name or source.suffix.lower() != '.mp3' or source.is_symlink() or source.resolve().parent != root.resolve() or not source.is_file() or not source.stat().st_size:
                             raise RuntimeError('The song could not be uniquely found in local songs.')
-                        with source.open('rb') as incoming, target.open('xb') as outgoing:
-                            created = True
-                            shutil.copyfileobj(incoming, outgoing)
-                        copied = True
+                        target = place_audio(source, target, remove_source=False)
                         state['saved'] += 1
                         index[track['id']] = target.name
                         try:
@@ -123,9 +203,6 @@ def worker(job):
                             pass
                     except Exception:
                         state['failed'].append(dict(track, message='Could not copy this song from local songs. Check that its MP3 still exists and the destination is writable.'))
-                    finally:
-                        if created and not copied:
-                            target.unlink(missing_ok=True)
                     continue
                 work = job / track['id']
                 work.mkdir()
@@ -162,13 +239,7 @@ def worker(job):
                         raise RuntimeError('The song could not be downloaded. Details are in the download logs.')
                     if config.get('single'):
                         target = folder / files[0].name
-                        if target.exists():
-                            if target.stat().st_size > 0:
-                                state['skipped'] += 1
-                                active.remove(entry)
-                                continue
-                            raise RuntimeError('The destination contains an empty file with this name.')
-                    shutil.move(str(files[0]), str(target))
+                    target = place_audio(files[0], target)
                     state['saved'] += 1
                     index[track['id']] = target.name
                     try:
@@ -201,6 +272,11 @@ def request(route, query, length):
         return {'status': 'ready', 'service': 'spotify-remastered'}
     if route == 'OPTIONS':
         return {}
+    if route in ('/playlist-folder', '/download', '/playlist'):
+        try:
+            cleanup_jobs()
+        except OSError:
+            pass
     if route == '/playlist-folder':
         JOBS.mkdir(parents=True, exist_ok=True)
         for previous in JOBS.glob('selection-*.json'):

@@ -148,6 +148,40 @@ function Update-Link($job) {
 
 function Handle-Link($ctx, $route) {
     try {
+        if ($route -eq '/link-local') {
+            $folder = Join-Path $script:linkRoot 'Local Songs'
+            New-Item -ItemType Directory -Force -Path $folder | Out-Null
+            $songs = @()
+            $ffmpeg = (Get-Downloader).FFmpeg
+            $indexes = @(Get-ChildItem -LiteralPath (Join-Path $script:linkRoot 'data\import-index') -Filter '*.json' -ErrorAction SilentlyContinue | ForEach-Object { Get-Content -LiteralPath $_.FullName -Raw -Encoding UTF8 | ConvertFrom-Json })
+            foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Filter '*.mp3' | Where-Object { $_.Length -gt 0 })) {
+                $process = New-Object Diagnostics.Process
+                $process.StartInfo.FileName = $ffmpeg
+                $process.StartInfo.Arguments = "-hide_banner -i `"$($file.FullName)`" -f ffmetadata -"
+                $process.StartInfo.UseShellExecute = $false
+                $process.StartInfo.CreateNoWindow = $true
+                $process.StartInfo.RedirectStandardOutput = $true
+                $process.StartInfo.RedirectStandardError = $true
+                $process.StartInfo.StandardOutputEncoding = [Text.Encoding]::UTF8
+                $process.StartInfo.StandardErrorEncoding = [Text.Encoding]::UTF8
+                try {
+                    $process.Start() | Out-Null
+                    $out = $process.StandardOutput.ReadToEndAsync(); $err = $process.StandardError.ReadToEndAsync()
+                    if (-not $process.WaitForExit(10000)) { $process.Kill(); continue }
+                    if ($process.ExitCode -ne 0) { continue }
+                    $tags = @{}
+                    foreach ($line in ($out.Result -split "`n")) {
+                        if ($line -match '^([^=]+)=(.*)$') { $tags[$Matches[1]] = [regex]::Replace($Matches[2].TrimEnd("`r"), '\\(.)', '$1') }
+                    }
+                    $duration = 0
+                    if ($err.Result -match 'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)') { $duration = [double]$Matches[1] * 3600 + [double]$Matches[2] * 60 + [double]::Parse($Matches[3], [Globalization.CultureInfo]::InvariantCulture) }
+                    $index = $indexes | Where-Object { $_.File -eq $file.FullName } | Select-Object -First 1
+                    $songs += @{ title = $(if ($tags.title) { $tags.title } else { $file.BaseName }); artist = [string]$tags.artist; source = [string]$tags.album; duration = $duration; cover = $index.Cover; folder = $folder }
+                } finally { $process.Dispose() }
+            }
+            Respond $ctx (@{ status = 'done'; songs = @($songs); folder = $folder } | ConvertTo-Json -Depth 5 -Compress)
+            return
+        }
         Add-Type -AssemblyName System.Web
         $body = $null
         if ($route -in @('/link-preview', '/link-download')) {

@@ -298,7 +298,7 @@ try { while ($listener.IsListening) {
         continue
     }
     $route = $ctx.Request.Url.AbsolutePath
-    if ($route -in @('/link-preview', '/link-download', '/link-status', '/link-cancel', '/link-folder')) {
+    if ($route -in @('/link-preview', '/link-download', '/link-status', '/link-cancel', '/link-folder', '/link-local')) {
         Handle-Link $ctx $route
         continue
     }

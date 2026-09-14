@@ -134,6 +134,21 @@ def start(job, state):
 
 
 def request(route, query, size):
+    if route == '/link-local':
+        folder = ROOT / 'Local Songs'
+        folder.mkdir(exist_ok=True)
+        songs = []
+        indexes = [json.loads(path.read_text(encoding='utf-8')) for path in (ROOT / 'data/import-index').glob('*.json')]
+        for audio in folder.glob('*.mp3'):
+            result = subprocess.run([str(ROOT / 'dependencies/ffmpeg'),'-hide_banner','-i',str(audio),'-f','ffmetadata','-'],capture_output=True,text=True,encoding='utf-8',timeout=10)
+            if result.returncode:
+                continue
+            tags = {key:re.sub(r'\\(.)',r'\1',value) for line in result.stdout.splitlines() if '=' in line for key,value in [line.split('=',1)]}
+            match = re.search(r'Duration: (\d+):(\d+):(\d+(?:\.\d+)?)',result.stderr)
+            duration = int(match[1])*3600+int(match[2])*60+float(match[3]) if match else 0
+            record = next((item for item in indexes if item['file']==str(audio)),{})
+            songs.append(dict(title=tags.get('title') or audio.stem,artist=tags.get('artist',''),source=tags.get('album',''),duration=duration,cover=record.get('cover',''),folder=str(folder)))
+        return dict(status='done',songs=songs,folder=str(folder))
     body = {}
     if route in ('/link-preview', '/link-download'):
         if not 0 < size <= 8192:

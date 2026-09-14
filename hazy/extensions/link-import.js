@@ -23,6 +23,17 @@
         .sr-link-preview div {min-width:0;overflow:hidden}
         .sr-link-preview strong {display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
         .sr-link-actions {display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+        .sr-local-list {max-height:320px;overflow:auto;display:flex;flex-direction:column;gap:4px}
+        .sr-local-row {display:flex;align-items:center;gap:12px;padding:8px;border-radius:6px;min-height:56px}
+        .sr-local-row:hover {background:rgba(255,255,255,.04)}
+        .sr-local-cover {width:40px;height:40px;border-radius:4px;object-fit:cover;flex-shrink:0;background:rgba(255,255,255,.06);display:flex;align-items:center;justify-content:center}
+        .sr-local-info {min-width:0;flex:1}
+        .sr-local-info strong,.sr-local-info p {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+        .sr-local-info strong {font-size:14px;display:block}
+        #sr-link-import .sr-local-info p {font-size:13px;margin-top:3px}
+        .sr-local-time {font-size:13px;color:var(--spice-subtext);font-variant-numeric:tabular-nums}
+        #sr-link-import .sr-local-add {border-radius:9999px;padding:5px 14px;height:32px;min-width:60px;font-weight:700;flex-shrink:0}
+        #sr-link-import .sr-local-add:hover:not(:disabled) {background:transparent;border-color:var(--spice-text);transform:scale(1.04)}
         #sr-link-import .sr-link-primary {background:var(--spice-button);color:var(--spice-main);border:0;font-weight:700}
         #sr-link-import .sr-link-status {padding-top:14px;border-top:1px solid rgba(255,255,255,.08)}
         @media (prefers-reduced-motion:reduce) {.sr-link-button {transition:none}.sr-link-button:hover {transform:none}}
@@ -139,6 +150,49 @@
         const actions=element('div',null,'sr-link-actions');root.append(actions);
         const cancel=element('button','Cancel'), primary=element('button','Find song','sr-link-primary');actions.append(cancel,primary);
         const another=element('button','Add another','sr-link-primary');another.hidden=true;actions.append(another);
+        const localPanel=element('div');localPanel.hidden=true;localPanel.style.cssText='display:none;flex-direction:column;gap:12px';
+        const search=element('input');search.type='search';search.placeholder='Search local songs';search.setAttribute('aria-label','Search local songs');
+        const localList=element('div',null,'sr-local-list');localPanel.append(search,localList);status.before(localPanel);
+        let localSongs=[], localVersion=0;
+        function renderLocal() {
+            localList.replaceChildren();
+            const query=search.value.trim().toLocaleLowerCase();
+            const songs=localSongs.filter(song=>(song.title+' '+song.artist).toLocaleLowerCase().includes(query));
+            if(!songs.length){localList.append(element('p',localSongs.length?'No matching songs.':'No local songs yet. Import a song from YouTube or SoundCloud to get started.'));return;}
+            for(const song of songs){
+                const row=element('div',null,'sr-local-row');
+                const image=element(/^https:\/\//.test(song.cover || '')?'img':'span',null,'sr-local-cover');
+                if(image.tagName==='IMG'){image.src=song.cover;image.alt='';image.onerror=()=>{const fallback=element('span','♪','sr-local-cover');image.replaceWith(fallback);};}else image.textContent='♪';
+                const info=element('div',null,'sr-local-info');const heading=element('strong',song.title);heading.title=song.title;const subtitle=element('p',song.artist || 'Unknown artist');subtitle.title=subtitle.textContent;info.append(heading,subtitle);
+                const seconds=Math.round(song.duration);const duration=element('span',Math.floor(seconds/60)+':'+String(seconds%60).padStart(2,'0'),'sr-local-time');
+                const add=element('button',song.added?'Added':'Add','sr-local-add');add.disabled=!!song.added;add.setAttribute('aria-label',(song.added?'Already added: ':'Add ')+song.title);
+                add.onclick=async()=>{
+                    if(busy)return;setBusy(true);add.disabled=true;add.textContent='Adding…';
+                    try{const result=await addIndexed(song,uri,status,()=>closed);if(closed)return;song.added=true;add.textContent='Added';status.textContent=(result==='existing'?'Already in “':'Added to “')+name+'”.';}
+                    catch(error){if(!closed){status.textContent=error.message;add.textContent='Add';add.disabled=false;}}
+                    finally{if(!closed)setBusy(false);}
+                };
+                row.append(image,info,duration,add);localList.append(row);
+            }
+        }
+        search.oninput=renderLocal;
+        async function loadLocal() {
+            const version=++localVersion;localList.replaceChildren(element('p','Loading local songs…'));
+            try{
+                const result=await request('link-local');
+                if(closed || source!=='Local' || version!==localVersion)return;
+                localSongs=result.songs.sort((a,b)=>a.title.localeCompare(b.title));
+                const existing=new Set();let offset=0;
+                while(true){const content=await Spicetify.Platform.PlaylistAPI.getContents(uri,{offset,limit:100});const items=content.items || [];items.forEach(item=>existing.add(item.uri || item.track?.uri));if(items.length<100)break;offset+=items.length;}
+                const local=Spicetify.Platform.LocalFilesAPI;
+                if(!local.getIsEnabled())local.setIsEnabled(true);
+                const sources=await local.getSources();
+                if(!sources.folders.some(folder=>folder.path.replace(/\\/g,'/').toLowerCase()===result.folder.replace(/\\/g,'/').toLowerCase()))await local.addFolder({path:result.folder});
+                const indexed=await local.getTracks();
+                for(const song of localSongs){const track=indexed.find(item=>item.name===song.title && (song.artist?item.artists.some(artist=>artist.name===song.artist):!item.artists.length) && item.album.name.toLowerCase()===song.source.toLowerCase() && Math.abs(item.duration.milliseconds/1000-song.duration)<3);song.added=!!track && existing.has(track.uri);if(!song.cover){const cover=track?.album.images?.find(image=>/^https:\/\//.test(image.url));song.cover=cover?.url || '';}}
+                if(!closed && source==='Local' && version===localVersion)renderLocal();
+            }catch(error){if(!closed && source==='Local' && version===localVersion)localList.replaceChildren(element('p',error.message));}
+        }
         function resetSearch() {
             if(busy)return;
             const previous=job;
@@ -158,11 +212,11 @@
         }
         another.onclick=()=>{resetSearch();input.value='';input.focus();};
         input.addEventListener('input',resetSearch);
-        for (const platform of ['YouTube','SoundCloud']) {
+        for (const platform of ['YouTube','SoundCloud','Local']) {
             const tab=element('button',platform);tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(platform===source));tabs.append(tab);
-            tab.onclick=()=>{if(busy)return;source=platform;resetSearch();input.placeholder='Paste a '+platform+' song link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));input.focus();};
+            tab.onclick=()=>{if(busy)return;source=platform;resetSearch();const isLocal=platform==='Local';input.hidden=isLocal;primary.hidden=isLocal;localPanel.hidden=!isLocal;localPanel.style.display=isLocal?'flex':'none';input.placeholder='Paste a '+platform+' song link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));if(isLocal){search.value='';search.focus();loadLocal();}else input.focus();};
         }
-        function setBusy(value) {busy=value;input.disabled=value;title.disabled=artist.disabled=value;primary.disabled=value;[...tabs.children].forEach(tab=>tab.disabled=value);cancel.textContent=value?'Cancel import':'Close';}
+        function setBusy(value) {busy=value;search.disabled=value;input.disabled=value;title.disabled=artist.disabled=value;primary.disabled=value;[...tabs.children].forEach(tab=>tab.disabled=value);cancel.textContent=value?'Cancel import':'Close';}
         async function waitJob(id, phase) {
             const deadline=Date.now()+630000;
             let errors=0;

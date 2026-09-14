@@ -10,11 +10,18 @@
         .spicetify-popup-container:has(#sr-link-import) {width:520px!important;max-width:calc(100vw - 48px)!important;max-height:calc(100vh - 48px)!important;overflow-y:auto}
         #sr-link-import {display:flex;flex-direction:column;gap:20px;color:var(--spice-text);font-size:14px}
         #sr-link-import p {margin:0;color:var(--spice-subtext);line-height:1.5}
-        .sr-bulk-queue {max-height:min(220px,calc(100vh - 520px))!important;min-height:96px}
+        .sr-bulk-queue {max-height:min(360px,calc(100vh - 420px))!important;min-height:120px;scrollbar-color:var(--spice-subtext) transparent;scrollbar-width:thin}
         .sr-bulk-queue::-webkit-scrollbar-button {display:none;width:0;height:0}
         .sr-bulk-row {min-height:38px!important;gap:12px}
         .sr-bulk-row span {width:24px;flex-shrink:0;color:var(--spice-subtext)}
-        .sr-bulk-row strong {min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+        .sr-bulk-fields {display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+        #sr-link-import .sr-bulk-edit {display:block;text-align:left;border:0;background:transparent;padding:2px 0;border-radius:3px;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.4}
+        #sr-link-import .sr-bulk-edit:hover:not(:disabled) {background:transparent;text-decoration:underline;text-underline-offset:3px}
+        #sr-link-import .sr-bulk-edit[data-field=title] {font-weight:500}
+        #sr-link-import .sr-bulk-edit[data-field=artist] {font-size:12px;color:var(--spice-subtext)}
+        #sr-link-import .sr-bulk-edit:disabled {opacity:1}
+        #sr-link-import .sr-bulk-fields input {height:30px;min-width:0;padding:0 8px}
+        .sr-bulk-row {flex-shrink:0}
         .sr-link-tabs {display:flex;gap:8px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px}
         #sr-link-import button {font:inherit;cursor:pointer;border-radius:8px;border:1px solid rgba(255,255,255,.14);background:transparent;color:var(--spice-text);padding:9px 14px}
         #sr-link-import button:hover {background:rgba(255,255,255,.08)}
@@ -101,6 +108,16 @@
                 ? /^(www\.|m\.|music\.)?youtube\.com$|^youtu\.be$/.test(url.hostname)
                 : /^(www\.|m\.)?soundcloud\.com$|^on\.soundcloud\.com$|^snd\.sc$/.test(url.hostname);
         } catch { return false; }
+    }
+    function songMetadata(rawTitle, uploader) {
+        const garbage=/\b(?:official\s*(?:music\s*)?(?:video|audio|visuali[sz]er|lyric(?:s)?(?:\s*video)?)|music\s*video|lyric(?:s)?\s*video|HD|HQ|4K|1080p|720p)\b/gi;
+        let cleaned=String(rawTitle || '').replace(/\([^)]*\)|\[[^\]]*\]/g,group=>{
+            const remaining=group.slice(1,-1).replace(garbage,'').replace(/[\s|,/:-]/g,'');
+            return remaining?group:'';
+        });
+        cleaned=cleaned.replace(/(?:\s*[-|:]\s*|\s+)(?:official\s*(?:music\s*)?(?:video|audio|visuali[sz]er|lyric(?:s)?(?:\s*video)?)|music\s*video|lyric(?:s)?\s*video|HD|HQ|4K|1080p|720p)\s*$/gi,'').trim();
+        const parts=cleaned.match(/^(.+?)\s+[-–—]\s+(.+)$/);
+        return {title:(parts?parts[2]:cleaned).trim().slice(0,200),artist:String(parts?parts[1]:uploader || 'Unknown artist').trim().slice(0,200)};
     }
     async function addIndexed(job, uri, status, cancelled = () => false) {
         const local = Spicetify.Platform.LocalFilesAPI;
@@ -263,18 +280,59 @@
         }
         function renderBulk() {
             bulkList.hidden=false;
+            const scroll=bulkList.scrollTop;
             bulkList.replaceChildren();
-            const start=bulkProgress?.done || 0;
-            const entries=collection.entries.slice(start,start+8);
-            for(const [index,entry] of entries.entries()) {
+            for(const [index,entry] of collection.entries.entries()) {
                 const row=element('div',null,'sr-local-row sr-bulk-row');
-                row.append(element('span',String(start+index+1)),element('strong',entry.title || 'Song '+(start+index+1)));
+                const fields=element('div',null,'sr-bulk-fields');
+                const detected=songMetadata(entry.title || 'Song '+(index+1),entry.artist);
+                for(const [key,label] of [['title','Title'],['artist','Artist']]) {
+                    const value=element('button',entry[key+'Edit'] ?? detected[key],'sr-bulk-edit');
+                    value.dataset.field=key;value.title=value.textContent;
+                    value.setAttribute('aria-label','Edit '+label.toLowerCase()+' for song '+(index+1));
+                    value.disabled=importing;
+                    value.type='button';
+                    value.onclick=event=>{
+                        event.preventDefault();event.stopPropagation();
+                        const editor=element('input');editor.maxLength=200;editor.value=value.textContent;
+                        editor.setAttribute('aria-label',label+' for song '+(index+1));
+                        editor.onclick=event=>event.stopPropagation();
+                        let discard=false;
+                        editor.onblur=()=>{
+                            if(!discard){entry[key+'Edit']=editor.value.trim();value.textContent=entry[key+'Edit'];value.title=value.textContent;}
+                            editor.replaceWith(value);
+                        };
+                        editor.onkeydown=event=>{if(event.key==='Enter' || event.key==='Escape'){event.preventDefault();event.stopPropagation();discard=event.key==='Escape';editor.blur();value.focus();}};
+                        value.replaceWith(editor);editor.focus();editor.select();
+                    };
+                    fields.append(value);
+                }
+                row.append(element('span',String(index+1)),fields);
                 bulkList.append(row);
             }
-            if(collection.entries.length>start+8)bulkList.append(element('p','+'+(collection.entries.length-start-8)+' more queued'));
+            bulkList.scrollTop=scroll;
+        }
+        async function expandCollection() {
+            const expanded=new Set();
+            for(let index=0;index<collection.entries.length && !closed;index++) {
+                const entry=collection.entries[index];
+                if(!entry.collection)continue;
+                if(expanded.has(entry.url))throw new Error('This collection links back to an already expanded collection.');
+                expanded.add(entry.url);
+                let nested;
+                try {
+                    nested=await request('link-preview',{url:entry.url,collection:true});
+                    const found=await waitJob(nested.id,'previewing');
+                    if(!found)return;
+                    if(!found.entries?.length){entry.collection=false;Object.assign(entry,{title:found.title,artist:found.artist});continue;}
+                    if(collection.entries.length-1+found.entries.length>2000)throw new Error('The expanded collection has more than 2000 songs. Use a smaller collection.');
+                    collection.entries.splice(index,1,...found.entries);index--;
+                } finally {if(nested?.id)await request('link-cancel?id='+nested.id).catch(()=>{});}
+            }
         }
         async function runBulk() {
             importing=true;
+            renderBulk();
             const expanded=new Set();
             bulkProgress={total:collection.entries.length,done:0,added:0,existing:0,failed:[],queued:[],name:'Preparing collection…',artist:'',cover:collection.cover};
             try {
@@ -297,8 +355,10 @@
                             bulkProgress.total=collection.entries.length;
                             renderBulk();index--;continue;
                         }
-                        const songTitle=String(job.title || entry.title || 'Song').slice(0,200);
-                        const songArtist=String(job.artist || entry.artist || 'Unknown artist').slice(0,200);
+                        const detected=songMetadata(job.title || entry.title,job.artist || entry.artist);
+                        const songTitle=String(entry.titleEdit !== undefined ? entry.titleEdit.trim() : detected.title || 'Song').slice(0,200);
+                        const songArtist=String(entry.artistEdit !== undefined ? entry.artistEdit.trim() : detected.artist).slice(0,200);
+                        if(!songTitle || !songArtist)throw new Error('Enter the song title and artist.');
                         bulkProgress.name=songTitle;bulkProgress.artist=songArtist;
                         if(!bulkProgress.cover)bulkProgress.cover=job.cover;
                         status.textContent='Downloading “'+songTitle+'”… · '+index+' of '+bulkProgress.total;
@@ -338,6 +398,7 @@
                     job=await waitJob(job.id,'previewing');if(!job)return;
                     if(job.status==='cancelled')throw new Error('Import cancelled.');
                     collection=job.entries?.length ? job : null;
+                    if(collection){status.textContent='Reading collection songs…';await expandCollection();if(closed)return;}
                     if(collection && !collection.cover) {
                         let probe;
                         try {
@@ -348,13 +409,15 @@
                         if(closed)return;
                     }
                     const entryLabel=collection?.entries.some(entry=>entry.collection)?'entries':'songs';
-                    title.value=job.title;artist.value=job.artist || '';
+                    const detected=songMetadata(job.title,job.artist);
+                    title.value=detected.title;artist.value=detected.artist;
                     if(/^https:\/\//.test(job.cover || '')){const image=element('img');image.src=job.cover;image.alt='';image.onerror=()=>image.remove();coverRow.append(image);}
                     const text=element('div');text.append(element('strong',job.title),element('p',job.source+' · '+(collection?collection.entries.length+' '+entryLabel:Math.round(job.duration/60)+' min')));coverRow.append(text);
                     preview.hidden=!!collection;preview.style.display=collection?'none':'flex';
                     if(collection)renderBulk();
-                    status.textContent=collection?'Download this collection in order and add it to “'+name+'”.'+(collection.snapshot?' This mix/radio uses a snapshot of up to 50 available songs.':''):'Check the title and artist before adding.';primary.textContent=collection?'Download and add '+collection.entries.length+' '+entryLabel:'Download and add';
+                    status.textContent=collection?'Edit any title or artist, then download this collection in order and add it to “'+name+'”.'+(collection.snapshot?' This mix/radio uses a snapshot of up to 50 available songs.':''):'Check the title and artist before adding.';primary.textContent=collection?'Download and add '+collection.entries.length+' '+entryLabel:'Download and add';
                 } else if(collection) {
+                    if(collection.entries.some(entry=>['title','artist'].some(key=>entry[key+'Edit']!==undefined && !entry[key+'Edit'].trim())))throw new Error('Enter a title and artist for each edited song.');
                     await runBulk();
                 } else {
                     if(!title.value.trim() || !artist.value.trim())throw new Error('Enter the song title and artist.');
@@ -384,6 +447,8 @@
         const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
         overlay?.animate([{opacity:0},{opacity:1}],{duration:reduced?0:180,easing:'ease-out'});
         let closing=false;
+        const modalObserver=new MutationObserver(()=>{if(!root.isConnected && !closing)close();});
+        modalObserver.observe(document.body,{childList:true,subtree:true});
         let backdropPress=null;
         function pointerdown(event) {
             backdropPress=event.target===overlay && event.button===0
@@ -394,7 +459,7 @@
         }
         function resetPress(){backdropPress=null;}
         async function close(cancelImport=false) {
-            if(closing || cancel.disabled)return;closing=true;closed=true;clearTimeout(timer);
+            if(closing || cancel.disabled)return;closing=true;closed=true;open=false;modalObserver.disconnect();clearTimeout(timer);
             if(cancelImport)cancelled=true;
             if(importing && !cancelled) {
                 const task = {id:importId,title:collection?.title || title.value.trim(),artist:artist.value.trim(),cover:bulkProgress?.cover || job?.cover,total:bulkProgress?.total,progress:bulkProgress,
@@ -418,7 +483,7 @@
             resetPress();
             if(outside || dismiss){event.preventDefault();event.stopImmediatePropagation();if(dismiss)close();}
         }
-        function keydown(event){if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
+        function keydown(event){if(event.key==='Escape' && event.target.closest?.('.sr-bulk-fields input'))return;if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
         overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=()=>close((collection && importing) || (importing && job?.status!=='done'));input.focus();
         overlay?.addEventListener('pointerdown',pointerdown,true);
         window.addEventListener('pointermove',pointermove,true);

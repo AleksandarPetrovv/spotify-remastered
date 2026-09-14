@@ -3139,3 +3139,49 @@ CUSTOM LYRICS STYLES
 .lyrics-lyricsContainer-Provider {
   display: none !important;
 }
+.GenericModal__overlay:has(.spicetify-popup) {
+  position: fixed;
+  inset: 0;
+  z-index: 1000 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, .65);
+}
+.GenericModal.spicetify-popup {
+  display: flex;
+  max-width: 100%;
+  max-height: 100%;
+  outline: none;
+}
+.spicetify-popup .spicetify-popup-container {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  width: min(600px, calc(100vw - 48px));
+  max-width: 100%;
+  max-height: calc(100vh - 48px);
+  overflow: hidden;
+  color: var(--spice-text, #fff);
+  background: rgba(18, 18, 18, .96);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, .5);
+  backdrop-filter: blur(16px);
+}
+.spicetify-popup .spicetify-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 20px 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+.spicetify-popup .spicetify-popup-title { margin: 0; font-size: 20px; line-height: 28px; font-weight: 600; }
+.spicetify-popup .spicetify-popup-closeBtn { display: flex; padding: 6px; background: none; border: 0; color: #ccc; cursor: pointer; }
+.spicetify-popup .spicetify-popup-closeBtn:hover { color: #fff; }
+.spicetify-popup .spicetify-popup-closeBtn:focus-visible { outline: 2px solid var(--spice-button); outline-offset: 3px; }
+.spicetify-popup .spicetify-popup-content { min-height: 0; padding: 20px 24px; overflow: auto; }

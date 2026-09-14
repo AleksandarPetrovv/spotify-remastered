@@ -236,6 +236,23 @@ try {
     localStorage.setItem("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
 }
 
+for (const id of ["spotify", "local", "netease", "lrclib"]) {
+    if (!CONFIG.providers[id].on) {
+        CONFIG.providers[id].on = true;
+        ConfigUtils.setPersisted(`lyrics-plus:provider:${id}:on`, true);
+    }
+}
+if (CONFIG.providersOrder[0] !== "spotify") {
+    CONFIG.providersOrder = ["spotify", ...CONFIG.providersOrder.filter(id => id !== "spotify")];
+    ConfigUtils.setPersisted("lyrics-plus:services-order", JSON.stringify(CONFIG.providersOrder));
+}
+for (const [key, value] of Object.entries({ "ja-detect-threshold": 1, "hans-detect-threshold": 1, "playbar-button": true, "debug-mode": false })) {
+    if (CONFIG.visual[key] !== value) {
+        CONFIG.visual[key] = value;
+        ConfigUtils.setPersisted(`lyrics-plus:visual:${key}`, value);
+    }
+}
+
 CONFIG.locked = Number.parseInt(CONFIG.locked);
 CONFIG.visual["lines-before"] = Number.parseInt(CONFIG.visual["lines-before"]);
 CONFIG.visual["lines-after"] = Number.parseInt(CONFIG.visual["lines-after"]);

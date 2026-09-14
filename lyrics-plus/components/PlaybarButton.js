@@ -33,6 +33,20 @@
 		isOnLyrics()
 	);
 	window.__lyricsPlusPlaybarButton = button;
+	button.element?.classList.add("lp-playbar-lyrics");
+	if (!document.getElementById("lp-playbar-compat")) {
+		const style = document.createElement("style");
+		style.id = "lp-playbar-compat";
+		style.textContent = `
+            .lp-playbar-lyrics { display:flex!important;align-items:center;justify-content:center;width:32px;height:32px;padding:8px!important;border:0!important;background:none!important;color:#b3b3b3;cursor:pointer;box-sizing:border-box; }
+            .lp-playbar-lyrics:hover { color:#fff; }
+            .lp-playbar-lyrics.main-genericButton-buttonActive { color:var(--spice-button); }
+            .lp-playbar-lyrics span { display:flex!important;align-items:center;justify-content:center; }
+            .lp-playbar-lyrics svg { width:16px;height:16px;stroke:none;fill:currentColor; }
+            .lp-playbar-lyrics:focus-visible { outline:2px solid var(--spice-button);outline-offset:2px;border-radius:4px; }
+        `;
+		document.head.appendChild(style);
+	}
 
 	// The built-in "lyrics" SVGIcon renders reliably; swap its path for
 	// Spotify's exact microphone icon so ours matches the native button.

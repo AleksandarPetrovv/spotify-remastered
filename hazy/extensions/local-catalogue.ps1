@@ -2,7 +2,7 @@ param([string]$Root, [string]$FFmpeg, [string]$OutputPath)
 $ErrorActionPreference = 'Stop'
 $active = New-Object 'System.Collections.Generic.List[object]'
 try {
-    $folder = Join-Path $Root 'Local Songs'
+    $folder = Join-Path $Root 'local songs'
     New-Item -ItemType Directory -Force -Path $folder | Out-Null
     $cachePath = Join-Path $Root 'cache\local-catalogue.json'
     $previous = @{}

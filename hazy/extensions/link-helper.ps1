@@ -1,5 +1,10 @@
 $script:linkJobs = @{}
 $script:linkRoot = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
+if (Test-Path -LiteralPath $script:linkRoot) {
+    Get-ChildItem -LiteralPath $script:linkRoot -Directory | Where-Object { $_.Name -ieq 'local songs' -and $_.Name -cne 'local songs' } | ForEach-Object {
+        Rename-Item -LiteralPath $_.FullName -NewName 'local songs'
+    }
+}
 $script:lastLinkCleanup = [DateTime]::MinValue
 
 $script:localCatalogueJob = $null
@@ -37,7 +42,7 @@ function Save-LinkIndex($job) {
 }
 
 function Find-SavedLink($job) {
-    $folder = Join-Path $script:linkRoot 'Local Songs'
+    $folder = Join-Path $script:linkRoot 'local songs'
     $path = Link-IndexPath $job.Url
     if (Test-Path -LiteralPath $path) {
         $record = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
@@ -146,7 +151,7 @@ function Update-Link($job) {
         } else {
             $audio = Join-Path $job.Dir 'audio.mp3'
             if (-not (Test-Path -LiteralPath $audio) -or (Get-Item -LiteralPath $audio).Length -eq 0) { throw 'The downloader produced no MP3 file.' }
-            $folder = Join-Path $script:linkRoot 'Local Songs'
+            $folder = Join-Path $script:linkRoot 'local songs'
             New-Item -ItemType Directory -Force -Path $folder | Out-Null
             $base = Safe-Name $job.Title
             $target = Join-Path $folder "$base.mp3"
@@ -204,7 +209,7 @@ function Handle-Link($ctx, $route) {
             $saved = Find-SavedLink $job
             if ($saved) {
                 foreach ($key in @('File','Title','Artist','Duration','Source','Cover')) { $job[$key] = $saved.$key }
-                $job.Folder = Join-Path $script:linkRoot 'Local Songs'
+                $job.Folder = Join-Path $script:linkRoot 'local songs'
                 $job.Status = 'done'; $job.Reused = $true
                 Save-LinkIndex $job
             } else {

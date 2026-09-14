@@ -103,7 +103,7 @@
             if (uniqueMatches.length > 1) throw new Error('Downloaded, but several local songs match. Choose the correct one from Local Files.');
             await sleep(1500);
         }
-        if (!track) throw new Error('Downloaded, but Spotify has not indexed it yet. The MP3 is safe in Local Songs; add it from Local Files.');
+        if (!track) throw new Error('Downloaded, but Spotify has not indexed it yet. The MP3 is safe in local songs; add it from Local Files.');
         if (cancelled()) throw new Error('The MP3 was saved. Playlist insertion cancelled.');
         async function containsTrack() {
             let offset=0;
@@ -138,7 +138,7 @@
         open = true;
         let source = 'YouTube', job = null, busy = false, closed = false, timer = null;
         const root = element('div'); root.id = 'sr-link-import';
-        root.append(element('p', 'Add a local song to “' + name + '”. The MP3 stays in Spotify Remastered’s Local Songs folder.'));
+        root.append(element('p', 'Add a local song to “' + name + '”. The MP3 stays in Spotify Remastered’s local songs folder.'));
         const tabs = element('div', null, 'sr-link-tabs'); tabs.setAttribute('role','tablist');
         const input = element('input'); input.type = 'url'; input.placeholder = 'Paste a YouTube song link'; input.setAttribute('aria-label','Song link');
         const status = element('p', '', 'sr-link-status'); status.setAttribute('role','status'); status.setAttribute('aria-live','polite');

@@ -97,7 +97,7 @@ here is what each file and folder does (optional items may not be present):
 - scripts/download-runner.py: adds alternate-upload fallback to the python song downloader.
 - scripts/local-catalogue.ps1: reuses unchanged local-song metadata and reads new files in the background.
 - scripts/repair-spicetify.ps1: preserves the scrolling compatibility fix when spicetify is applied or updated.
-- scripts/link-helper.ps1: downloads youtube/soundcloud audio into Local Songs, tracks import jobs and reports source errors.
+- scripts/link-helper.ps1: downloads youtube/soundcloud audio into local songs, tracks import jobs and reports source errors.
 - scripts/setup-link-tools.ps1: finds compatible installed download tools and only downloads missing tools into dependencies.
 - dependencies/yt-dlp.exe: optional managed link downloader. an existing compatible yt-dlp installation is used instead when available.
 - dependencies/deno.exe: optional javascript runtime for youtube extraction, installed only when no compatible deno or node installation is available.
@@ -109,7 +109,7 @@ here is what each file and folder does (optional items may not be present):
 - data/spicetify-status.txt: records whether spicetify was installed before spotify remastered, so uninstall can preserve an existing installation.
 - data/prev-theme.txt: optional record of your previous theme for restoration during uninstall.
 - cache/download-logs: temporary jobs and error logs, limited to 20 inactive jobs and 7 days. its playlist-index subfolder records saved songs for repeat-download skipping; keep that index.
-- Local Songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
+- local songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
 - about-this-folder.txt: this file.
 "@ | Set-Content (Join-Path $customDir "about-this-folder.txt") -Encoding UTF8
 

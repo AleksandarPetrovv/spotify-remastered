@@ -19,6 +19,38 @@ ROOT = Path.home() / '.local/share/spotify-remastered'
 JOBS = ROOT / 'cache/import-logs'
 
 
+def migrate_song_folder():
+    folder = ROOT / 'local songs'
+    if not ROOT.is_dir():
+        return
+    migrated = False
+    for previous in ROOT.iterdir():
+        if previous.is_dir() and previous.name.lower() == folder.name and previous.name != folder.name:
+            if not folder.exists() or previous.samefile(folder):
+                try:
+                    previous.rename(folder)
+                    migrated = True
+                except FileNotFoundError:
+                    if not folder.is_dir():
+                        raise
+    if not migrated:
+        return
+    for index in (ROOT / 'data/import-index').glob('*.json'):
+        try:
+            record = json.loads(index.read_text(encoding='utf-8'))
+            audio = Path(record['file'])
+            if audio.parent.parent == ROOT and audio.parent.name.lower() == folder.name and audio.parent.name != folder.name:
+                replacement = folder / audio.name
+                if replacement.is_file():
+                    record['file'] = str(replacement)
+                    index.write_text(json.dumps(record), encoding='utf-8')
+        except (OSError, ValueError, KeyError):
+            continue
+
+
+migrate_song_folder()
+
+
 def index_path(url):
     directory = ROOT / 'data/import-index'
     directory.mkdir(parents=True, exist_ok=True)
@@ -33,7 +65,7 @@ def save_index(state):
 
 
 def find_saved(state):
-    folder = ROOT / 'Local Songs'
+    folder = ROOT / 'local songs'
     path = index_path(state['url'])
     if path.is_file():
         record = json.loads(path.read_text(encoding='utf-8'))
@@ -113,7 +145,7 @@ def worker(job):
             audio = job / 'audio.mp3'
             if not audio.is_file() or not audio.stat().st_size:
                 raise RuntimeError('The downloader produced no MP3 file.')
-            folder = ROOT / 'Local Songs'
+            folder = ROOT / 'local songs'
             folder.mkdir(exist_ok=True)
             name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', state['title']).strip().rstrip('.')[:80] or 'Song'
             target = folder / (name + '.mp3')
@@ -136,7 +168,7 @@ def start(job, state):
 
 
 def local_catalogue():
-    folder = ROOT / 'Local Songs'
+    folder = ROOT / 'local songs'
     folder.mkdir(exist_ok=True)
     cache_dir = ROOT / 'cache'
     cache_dir.mkdir(exist_ok=True)
@@ -229,7 +261,7 @@ def request(route, query, size):
             raise ValueError('Wait for the song preview first.')
         saved = find_saved(state)
         if saved:
-            state.update(saved,status='done',reused=True,folder=str(ROOT / 'Local Songs'))
+            state.update(saved,status='done',reused=True,folder=str(ROOT / 'local songs'))
             save_index(state)
             write(job,state)
             return state

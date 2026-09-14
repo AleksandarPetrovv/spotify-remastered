@@ -109,7 +109,7 @@ here is what each file and folder does (optional items may not be present):
 - scripts/download-playlist.py: handles playlist/album jobs, progress, cancellation and saved-file verification; requires python 3.
 - scripts/download-runner.py: adds alternate-upload fallback when the python downloader is installed.
 - scripts/repair-spicetify.py: preserves the scrolling compatibility fix when spicetify is applied or updated.
-- scripts/link-helper.py: downloads youtube/soundcloud audio into Local Songs and tracks import jobs; requires python 3.
+- scripts/link-helper.py: downloads youtube/soundcloud audio into local songs and tracks import jobs; requires python 3.
 - scripts/setup-link-tools.py: reuses compatible installed tools and installs missing download tools into dependencies.
 - dependencies/yt-dlp: optional managed link downloader, used when no compatible installed copy is available.
 - dependencies/deno: optional javascript runtime, used when no compatible installed deno or node is available.
@@ -122,7 +122,7 @@ here is what each file and folder does (optional items may not be present):
 - cache/playlist-jobs: download job records and logs, plus indexes that detect already-saved songs. keep the saved-file indexes.
 - com.spotify-remastered.updater.plist: login agent stored in your library/launchagents folder, outside this folder.
 - com.spotify-remastered.download-helper.plist: download-listener agent stored in library/launchagents, outside this folder.
-- Local Songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
+- local songs: local mp3 storage for link imports, when available. playlist entries reference these files; moving or deleting songs can break playback.
 - about-this-folder.txt: this file.
 EOF
 

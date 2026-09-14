@@ -8,6 +8,55 @@ function Quote-LinkMetadata($value) {
     return $quote + $value.Replace('\', '\\').Replace($quote, $escapedQuote) + $quote
 }
 
+function Link-IndexPath($url) {
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $key = [BitConverter]::ToString($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($url))).Replace('-', '').ToLowerInvariant() } finally { $sha.Dispose() }
+    $dir = Join-Path $script:linkRoot 'data\import-index'
+    New-Item -ItemType Directory -Force -Path $dir | Out-Null
+    return Join-Path $dir "$key.json"
+}
+
+function Save-LinkIndex($job) {
+    $path = Link-IndexPath $job.Url
+    @{ File = $job.File; Title = $job.Title; Artist = $job.Artist; Duration = $job.Duration; Source = $job.Source; Cover = $job.Cover } | ConvertTo-Json -Compress | Set-Content -LiteralPath "$path.tmp" -Encoding UTF8
+    Move-Item -LiteralPath "$path.tmp" -Destination $path -Force
+}
+
+function Find-SavedLink($job) {
+    $folder = Join-Path $script:linkRoot 'Local Songs'
+    $path = Link-IndexPath $job.Url
+    if (Test-Path -LiteralPath $path) {
+        $record = Get-Content -LiteralPath $path -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ([IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($record.File)) -eq $folder -and (Test-Path -LiteralPath $record.File) -and (Get-Item -LiteralPath $record.File).Length -gt 0) { return $record }
+    }
+    if (-not (Test-Path -LiteralPath $folder)) { return }
+    $ffmpeg = (Get-Downloader).FFmpeg
+    foreach ($file in @(Get-ChildItem -LiteralPath $folder -File -Filter '*.mp3')) {
+        $process = New-Object Diagnostics.Process
+        $process.StartInfo.FileName = $ffmpeg
+        $process.StartInfo.Arguments = "-v error -i `"$($file.FullName)`" -f ffmetadata -"
+        $process.StartInfo.UseShellExecute = $false
+        $process.StartInfo.CreateNoWindow = $true
+        $process.StartInfo.RedirectStandardOutput = $true
+        $process.StartInfo.RedirectStandardError = $true
+        $process.StartInfo.StandardOutputEncoding = [Text.Encoding]::UTF8
+        try {
+            $process.Start() | Out-Null
+            $out = $process.StandardOutput.ReadToEndAsync()
+            $err = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(10000)) { $process.Kill(); continue }
+            if ($process.ExitCode -ne 0) { continue }
+            $tags = @{}
+            foreach ($line in ($out.Result -split "`n")) {
+                if ($line -match '^([^=]+)=(.*)$') { $tags[$Matches[1]] = [regex]::Replace($Matches[2].TrimEnd("`r"), '\\(.)', '$1') }
+            }
+            if ($tags.purl -eq $job.Url -or $tags.comment -eq $job.Url) {
+                return @{ File = $file.FullName; Title = $tags.title; Artist = $tags.artist; Duration = $job.Duration; Source = $job.Source; Cover = $job.Cover }
+            }
+        } finally { $process.Dispose() }
+    }
+}
+
 function Clear-LinkJobs {
     foreach ($job in @($script:linkJobs.Values)) { Update-Link $job }
     foreach ($job in @($script:linkJobs.Values)) {
@@ -26,7 +75,19 @@ function Clear-LinkJobs {
     }
 }
 
-function Get-LinkUrl($value) { throw 'Link imports are not enabled.' }
+function Get-LinkUrl($value) {
+    $url = $null
+    if (-not [Uri]::TryCreate([string]$value, [UriKind]::Absolute, [ref]$url) -or $url.Scheme -ne 'https' -or $url.UserInfo -or $url.Port -ne 443) { throw 'Paste a valid HTTPS YouTube or SoundCloud song link.' }
+    $hostName = $url.DnsSafeHost.ToLowerInvariant()
+    if ($hostName -in @('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com')) {
+        $id = [System.Web.HttpUtility]::ParseQueryString($url.Query)['v']
+        if ($url.AbsolutePath -match '^/(shorts|embed)/([A-Za-z0-9_-]{11})/?$') { $id = $Matches[2] }
+        if ($id -notmatch '^[A-Za-z0-9_-]{11}$') { throw 'Use a single YouTube video link.' }
+        return "https://www.youtube.com/watch?v=$id"
+    }
+    if ($hostName -eq 'youtu.be' -and $url.AbsolutePath -match '^/([A-Za-z0-9_-]{11})/?$') { return "https://www.youtube.com/watch?v=$($Matches[1])" }
+    throw 'Use a single YouTube or SoundCloud song link, rather than a playlist or profile.'
+}
 
 function Start-LinkProcess($job, $arguments) {
     $config = Get-Content -LiteralPath (Join-Path $script:linkRoot 'data\download-tools.json') -Raw | ConvertFrom-Json
@@ -78,6 +139,7 @@ function Update-Link($job) {
             $job.Folder = $folder
             $job.File = $target
             $job.Status = 'done'
+            Save-LinkIndex $job
         }
     } catch { $job.Status = 'error'; $job.Message = $_.Exception.Message }
 }
@@ -106,6 +168,13 @@ function Handle-Link($ctx, $route) {
         } elseif (-not $job) { throw 'This import is no longer available. Paste the link again.' }
         elseif ($route -eq '/link-download') {
             if ($job.Status -ne 'ready') { throw 'Wait for the song preview first.' }
+            $saved = Find-SavedLink $job
+            if ($saved) {
+                foreach ($key in @('File','Title','Artist','Duration','Source','Cover')) { $job[$key] = $saved.$key }
+                $job.Folder = Join-Path $script:linkRoot 'Local Songs'
+                $job.Status = 'done'; $job.Reused = $true
+                Save-LinkIndex $job
+            } else {
             $title = ([string]$body.title).Trim(); $artist = ([string]$body.artist).Trim()
             if (-not $title -or -not $artist -or $title.Length -gt 200 -or $artist.Length -gt 200 -or "$title$artist" -match '[\x00-\x1f]') { throw 'Enter a title and artist of up to 200 characters.' }
             $tools = Get-Downloader
@@ -119,6 +188,7 @@ function Handle-Link($ctx, $route) {
             $job.Title = $title; $job.Artist = $artist
             $job.Status = 'downloading'
             Start-LinkProcess $job $argsText
+            }
         } elseif ($route -eq '/link-cancel') {
             if ($job.Status -in @('previewing', 'downloading', 'ready')) { Stop-Download $job; $job.Status = 'cancelled' }
         } elseif ($route -eq '/link-folder') {

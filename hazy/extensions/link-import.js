@@ -158,7 +158,7 @@
         }
         another.onclick=()=>{resetSearch();input.value='';input.focus();};
         input.addEventListener('input',resetSearch);
-        for (const platform of []) {
+        for (const platform of ['YouTube']) {
             const tab=element('button',platform);tab.setAttribute('role','tab');tab.setAttribute('aria-selected',String(platform===source));tabs.append(tab);
             tab.onclick=()=>{if(busy)return;source=platform;resetSearch();input.placeholder='Paste a '+platform+' song link';input.value='';[...tabs.children].forEach(button=>button.setAttribute('aria-selected',String(button===tab)));input.focus();};
         }
@@ -263,4 +263,6 @@
         button.onclick=()=>showImport(uri,metadata.name || 'Playlist');attachTooltip(button,menu);
     }
     function schedule(){if(scheduled)return;scheduled=true;setTimeout(()=>{scheduled=false;mount();},150);}
+    new MutationObserver(schedule).observe(document.querySelector('.Root__main-view') || document.body,{childList:true,subtree:true});
+    Spicetify.Platform.History.listen(schedule);schedule();
 })();

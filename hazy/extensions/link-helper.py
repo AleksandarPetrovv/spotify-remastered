@@ -17,6 +17,38 @@ ROOT = Path.home() / '.local/share/spotify-remastered'
 JOBS = ROOT / 'cache/import-logs'
 
 
+def index_path(url):
+    directory = ROOT / 'data/import-index'
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory / (hashlib.sha256(url.encode('utf-8')).hexdigest() + '.json')
+
+
+def save_index(state):
+    path = index_path(state['url'])
+    temp = path.with_suffix('.tmp')
+    temp.write_text(json.dumps({key:state[key] for key in ('file','title','artist','duration','source','cover')}), encoding='utf-8')
+    temp.replace(path)
+
+
+def find_saved(state):
+    folder = ROOT / 'Local Songs'
+    path = index_path(state['url'])
+    if path.is_file():
+        record = json.loads(path.read_text(encoding='utf-8'))
+        audio = Path(record['file'])
+        if audio.resolve().parent == folder.resolve() and audio.is_file() and audio.stat().st_size:
+            return record
+    for audio in folder.glob('*.mp3'):
+        result = subprocess.run([str(ROOT / 'dependencies/ffmpeg'), '-v','error','-i',str(audio),'-f','ffmetadata','-'], capture_output=True, text=True, encoding='utf-8', timeout=10)
+        tags = {}
+        for line in result.stdout.splitlines():
+            if '=' in line:
+                key, value = line.split('=',1)
+                tags[key] = re.sub(r'\\(.)',r'\1',value)
+        if state['url'] in (tags.get('purl'),tags.get('comment')):
+            return dict(file=str(audio),title=tags['title'],artist=tags['artist'],duration=state['duration'],source=state['source'],cover=state['cover'])
+
+
 def write(job, state):
     temp = job / 'status.tmp'
     temp.write_text(json.dumps(state), encoding='utf-8')
@@ -24,7 +56,17 @@ def write(job, state):
 
 
 def validate(value):
-    raise ValueError('Link imports are not enabled.')
+    url = urlparse(value)
+    if url.scheme != 'https' or url.username or url.password or url.port not in (None, 443):
+        raise ValueError('Paste a valid HTTPS song link.')
+    if url.hostname in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'):
+        video = url.path.strip('/') if url.hostname == 'youtu.be' else parse_qs(url.query).get('v', [''])[0]
+        match = re.fullmatch(r'/(shorts|embed)/([A-Za-z0-9_-]{11})/?', url.path)
+        if match:
+            video = match[2]
+        if re.fullmatch(r'[A-Za-z0-9_-]{11}', video):
+            return 'https://www.youtube.com/watch?v=' + video
+    raise ValueError('Use a single YouTube or SoundCloud song link.')
 
 
 def worker(job):
@@ -75,6 +117,7 @@ def worker(job):
                 suffix += 1
             shutil.move(str(audio), target)
             state.update(status='done', folder=str(folder),file=str(target))
+            save_index(state)
     except Exception as error:
         state.update(status='error', message=str(error))
     write(job, state)
@@ -122,6 +165,12 @@ def request(route, query, size):
     if route == '/link-download':
         if state['status'] != 'ready':
             raise ValueError('Wait for the song preview first.')
+        saved = find_saved(state)
+        if saved:
+            state.update(saved,status='done',reused=True,folder=str(ROOT / 'Local Songs'))
+            save_index(state)
+            write(job,state)
+            return state
         title, artist = str(body.get('title', '')).strip(), str(body.get('artist', '')).strip()
         if not title or not artist or max(len(title),len(artist)) > 200 or re.search(r'[\x00-\x1f]', title+artist):
             raise ValueError('Enter a title and artist of up to 200 characters.')

@@ -73,6 +73,7 @@ cp -r "$REPO/lyrics-plus" "$LP_DEST"
 EXTENSIONS_DIR="$CFG/Extensions"
 mkdir -p "$EXTENSIONS_DIR"
 cp "$REPO/hazy/extensions/download.js" "$EXTENSIONS_DIR/download.js"
+cp "$REPO/hazy/extensions/link-import.js" "$EXTENSIONS_DIR/link-import.js"
 
 PREV_THEME=$(spicetify config current_theme 2>/dev/null | xargs)
 CUSTOM_DIR="$HOME/.local/share/spotify-remastered"
@@ -253,6 +254,7 @@ DLPLISTEOF
 launchctl bootstrap "gui/$(id -u)" "$DL_PLIST_PATH" 2>/dev/null || launchctl load "$DL_PLIST_PATH" 2>/dev/null || true
 
 spicetify config extensions download.js
+spicetify config extensions link-import.js
 
 rm -f "$TEMP_ZIP"
 rm -rf "$TEMP_EXTRACT"

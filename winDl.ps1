@@ -62,6 +62,7 @@ Copy-Item -Recurse (Join-Path $repo "lyrics-plus") $lpDest
 $extensionsDir = Join-Path $cfg "Extensions"
 if (-not (Test-Path $extensionsDir)) { New-Item -ItemType Directory -Path $extensionsDir | Out-Null }
 Copy-Item (Join-Path $repo "hazy\extensions\download.js") (Join-Path $extensionsDir "download.js") -Force
+Copy-Item (Join-Path $repo 'hazy\extensions\link-import.js') (Join-Path $extensionsDir 'link-import.js') -Force
 
 $prevTheme = (spicetify config current_theme 2>$null)
 if ($prevTheme) { $prevTheme = $prevTheme.Trim() }
@@ -152,6 +153,7 @@ spicetify config inject_theme_js 1
 spicetify config current_theme Hazy
 spicetify config custom_apps lyrics-plus
 spicetify config extensions download.js
+spicetify config extensions link-import.js
 spicetify restore 2>$null
 spicetify backup apply
 spicetify apply

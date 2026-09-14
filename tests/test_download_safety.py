@@ -78,6 +78,31 @@ class DownloadSafety(unittest.TestCase):
         with patch.object(sys,'argv',['runner','--serve']),patch.dict(os.environ,{'SR_WORKER_FORMAT':'flac'}):
             self.assertEqual(namespace['worker_root'](),roots[-1])
 
+    def test_parallel_audio_temp_paths_and_logging_cleanup(self):
+        import logging
+        source=(REPO / 'hazy/extensions/download-runner.py').read_text(encoding='utf-8')
+        tree=ast.parse(source)
+        functions=[node for node in tree.body if isinstance(node,ast.FunctionDef) and node.name in ('audio_temp_path','clear_job_logging')]
+        namespace={'logging':logging}
+        exec(compile(ast.Module(body=functions,type_ignores=[]),'runner','exec'),namespace)
+        paths=[]
+        for audio_format in ('mp3','flac'):
+            namespace['worker_root']=lambda audio_format=audio_format:self.root / audio_format
+            paths.append(namespace['audio_temp_path']())
+        self.assertNotEqual(paths[0],paths[1])
+        for path in paths:
+            (path / 'same-video.webm').write_bytes(b'audio')
+        (paths[0] / 'same-video.webm').unlink()
+        self.assertTrue((paths[1] / 'same-video.webm').exists())
+        job_logger=logging.getLogger('spotdl')
+        original=job_logger.handlers[:]
+        handler=logging.StreamHandler(io.StringIO())
+        job_logger.addHandler(handler)
+        with patch.object(logging,'getLogger',side_effect=lambda name:job_logger if name=='spotdl' else logging.Logger('test-root')):
+            namespace['clear_job_logging']()
+        self.assertEqual(job_logger.handlers,[])
+        job_logger.handlers=original
+
     def run_worker(self, tracks, single=False, before_output=None, audio_format='mp3'):
         job = self.module.JOBS / ('job-' + str(len(list(self.module.JOBS.glob('*')))))
         job.mkdir(parents=True)

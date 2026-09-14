@@ -33,6 +33,20 @@ def worker_root():
     return root / ('cache/spotify-worker' + ('' if audio_format == 'mp3' else '-' + audio_format))
 
 
+def audio_temp_path():
+    directory = worker_root() / 'audio-temp'
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def clear_job_logging():
+    for name in ('', 'spotdl'):
+        job_logger = logging.getLogger(name)
+        for handler in job_logger.handlers[:]:
+            job_logger.removeHandler(handler)
+            handler.close()
+
+
 def write_json(path, value):
     temporary = path.with_suffix('.tmp')
     temporary.write_text(json.dumps(value), encoding='utf-8')
@@ -199,6 +213,10 @@ AudioProvider.get_download_metadata = metadata
 
 from concurrent.futures import ThreadPoolExecutor
 import spotdl.download.downloader as downloader_module
+import spotdl.providers.audio.base as audio_provider_module
+
+downloader_module.get_temp_path = audio_temp_path
+audio_provider_module.get_temp_path = audio_temp_path
 
 original_lyrics_search = Downloader.search_lyrics
 original_embed = downloader_module.embed_metadata
@@ -299,6 +317,7 @@ def serve():
                             settings['lyrics_providers'] = []
                         if SpotifyClient._instance is None:
                             SpotifyClient.init(**spotify_settings)
+                        clear_job_logging()
                         init_logging(settings['log_level'], settings['log_format'])
                         key = json.dumps(settings, sort_keys=True, default=str)
                         if downloader is None or key != settings_key:
@@ -337,6 +356,7 @@ def serve():
                             lyrics_pending.clear()
                         for future in unfinished:
                             future.cancel()
+                        clear_job_logging()
                 write_json(job / 'result.json', {'code': code})
                 idle_since = time.monotonic()
             time.sleep(0.25)

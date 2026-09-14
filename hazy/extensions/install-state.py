@@ -349,6 +349,39 @@ def spotx(root, spotify, action):
                             remove_attribute(path, name)
                     for name, value in attributes['before'].items():
                         set_attribute(path, name, base64.b64decode(value))
+        elif action == 'reset':
+            for relative, record in state['files'].items():
+                file = spotify / relative
+                if (digest(file) if file.is_file() else None) != record['before']:
+                    raise RuntimeError('Restore the previous patch before starting a new installation cycle.')
+            if backup.exists():
+                shutil.rmtree(backup)
+            state_path.unlink()
+
+
+def check_restore(root, cfg):
+    state = json.loads((root / 'data/install-state.json').read_text(encoding='utf-8-sig'))
+    if Path(state['config']).resolve() != cfg.resolve():
+        raise RuntimeError('Saved configuration belongs to another installation.')
+    backup = backup_directory(root, state, 'assets_backup', 'data/previous-assets')
+    for relative in state['assets']:
+        source = backup / relative
+        if relative not in ASSETS or source.is_symlink() or not source.exists() or not source.resolve().is_relative_to(backup.resolve()):
+            raise RuntimeError('An original installation asset is missing.')
+    record = root / 'data/spotx-state.json'
+    if record.exists():
+        patch = json.loads(record.read_text(encoding='utf-8-sig'))
+        if sys.platform == 'darwin' and not patch.get('bundle_snapshot'):
+            raise RuntimeError('This older recovery record does not cover app signing. Repair the Spotify installation before uninstalling.')
+        if not patch.get('finalized'):
+            raise RuntimeError('SpotX setup did not finish; repair setup before uninstalling.')
+        backup = backup_directory(root, patch, 'backup', 'data/spotx-original')
+        for relative, info in patch['files'].items():
+            source = backup / relative
+            if not source.resolve().is_relative_to(backup.resolve()):
+                raise RuntimeError('Invalid recovery file path.')
+            if info['before'] is not None and (not source.is_file() or digest(source) != info['before']):
+                raise RuntimeError('An original Spotify recovery file is missing or damaged.')
 
 
 if __name__ == '__main__':
@@ -356,6 +389,8 @@ if __name__ == '__main__':
     root = Path(directory).resolve()
     if action == 'capture':
         capture(root, Path(sys.argv[3]).resolve(), sys.argv[4].lower() == 'true')
+    elif action == 'check':
+        check_restore(root, Path(sys.argv[3]).resolve())
     elif action == 'restore':
         restore(root, Path(sys.argv[3]).resolve())
     elif action == 'stop':

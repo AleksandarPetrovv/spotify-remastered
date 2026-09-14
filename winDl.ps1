@@ -1,7 +1,13 @@
+param([string]$SourceDirectory, [Nullable[bool]]$Premium, [Nullable[bool]]$OpenAtLogin)
 $ErrorActionPreference = 'Stop'
 function Invoke-Spice {
-    & $script:spiceExe @args
-    if ($LASTEXITCODE -ne 0) { throw "Spicetify failed with exit code $LASTEXITCODE." }
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $script:spiceExe @args
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previousPreference }
+    if ($exitCode -ne 0) { throw "Spicetify failed with exit code $exitCode." }
 }
 
 
@@ -58,6 +64,12 @@ try {
 $tempExtract = Join-Path $env:TEMP ('spotify-remastered-' + [Guid]::NewGuid().ToString('N'))
 $tempZip = $tempExtract + '.zip'
 
+if ($SourceDirectory) {
+    $sourceRoot = (Resolve-Path -LiteralPath $SourceDirectory -ErrorAction Stop).Path
+    $repo = Join-Path $tempExtract 'repository'
+    New-Item -ItemType Directory -Path $repo -Force | Out-Null
+    foreach ($name in @('hazy', 'lyrics-plus', 'winDel.ps1', 'macDel.sh')) { Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $repo -Recurse -ErrorAction Stop }
+} else {
 Invoke-WebRequest -Uri 'https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.8.zip' -OutFile $tempZip
 
 if (-not (Test-Path $tempZip)) { throw "Download failed." }
@@ -66,6 +78,7 @@ Expand-Archive $tempZip -DestinationPath $tempExtract -Force
 $inner = (Get-ChildItem -Path $tempExtract -Directory)[0].FullName
 Rename-Item -Path $inner -NewName "repository"
 $repo = Join-Path $tempExtract "repository"
+}
 if (-not (Test-Path $repo)) { throw "Extracted repo folder not found at $repo." }
 foreach ($file in @('hazy\extensions\installer-common.ps1','hazy\extensions\setup-downloader.ps1','hazy\extensions\setup-downloader.py','hazy\extensions\downloader-requirements.txt','hazy\extensions\install-state.py','hazy\extensions\about-this-folder.txt','hazy\extensions\link-import.js','hazy\extensions\local-catalogue.ps1','lyrics-plus\components\PlaybarButton.js')) {
     if (-not (Test-Path -LiteralPath (Join-Path $repo $file))) { throw "The release archive is missing $file. Publish a current release before installing." }
@@ -150,13 +163,11 @@ Copy-Item (Join-Path $repo "hazy\extensions\download-helper.ps1") (Join-Path $cu
 Copy-Item (Join-Path $repo "hazy\extensions\download-runner.py") (Join-Path $customDir "scripts\download-runner.py") -Force
 foreach ($file in @('link-helper.ps1','setup-link-tools.ps1','local-catalogue.ps1','repair-spicetify.ps1')) { Copy-Item (Join-Path $repo "hazy\extensions\$file") (Join-Path $customDir "scripts\$file") -Force }
 
+Copy-Item (Join-Path $repo 'winDel.ps1') (Join-Path $customDir 'scripts\winDel.ps1') -Force
+if (Test-Path -LiteralPath (Join-Path $repo 'hazy\extensions\uninstall-helper.py')) { Copy-Item (Join-Path $repo 'hazy\extensions\uninstall-helper.py') (Join-Path $customDir 'scripts\uninstall-helper.py') -Force }
+if (Test-Path -LiteralPath (Join-Path $repo 'hazy\extensions\uninstall-worker.ps1')) { Copy-Item (Join-Path $repo 'hazy\extensions\uninstall-worker.ps1') (Join-Path $customDir 'scripts\uninstall-worker.ps1') -Force }
 $dlHelperScript = Join-Path $customDir "scripts\download-helper.ps1"
-$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-if ($pwshCmd) { $dlPwsh = $pwshCmd.Source }
-else {
-    $ps5 = Get-Command powershell.exe -ErrorAction SilentlyContinue
-    if ($ps5) { $dlPwsh = $ps5.Source } else { $dlPwsh = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
-}
+$dlPwsh = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 $q = '""'
 $dlVbsContent = 'CreateObject("WScript.Shell").Run "' + $q + $dlPwsh + $q + ' -ExecutionPolicy Bypass -STA -File ' + $q + $dlHelperScript + $q + '", 0, False'
 $dlVbs = Join-Path $customDir "scripts\download-helper.vbs"
@@ -165,13 +176,18 @@ $dlStartupVbs = Join-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\St
 Copy-Item $dlVbs $dlStartupVbs -Force
 
 $wshell = New-Object -ComObject WScript.Shell
-$premiumResponse = $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
+$premiumResponse = if ($null -ne $Premium) { if ($Premium) { 6 } else { 7 } } else { $wshell.Popup("Do you have Spotify Premium?", 0, "Spotify Remastered Setup", 4 + 32 + 256) }
 
 $spotxFlags = @('-podcasts_off', '-block_update_off', '-confirm_spoti_recomended_over', '-defender_exclusions_off')
 if ($premiumResponse -eq 6) { $spotxFlags += '-premium' }
 $spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
 if (-not (Test-Path -LiteralPath $spotifyPath -PathType Container)) { throw 'Could not locate Spotify for patch backup.' }
-if (Test-Path -LiteralPath (Join-Path $cfg 'Backup\xpui.spa')) { Invoke-Spice restore }
+if (Test-Path -LiteralPath (Join-Path $cfg 'Backup\xpui.spa')) { Invoke-Spice restore -n }
+if ((Test-Path -LiteralPath (Join-Path $customDir 'data\spotx-state.json')) -and (Select-String -LiteralPath (Join-Path $customDir 'scripts\install-state.py') -SimpleMatch 'def check_restore' -Quiet)) {
+    Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
+    Invoke-Checked $managedPython (Join-Path $customDir 'scripts\install-state.py') spotx-restore $customDir $spotifyPath
+    Invoke-Checked $managedPython (Join-Path $customDir 'scripts\install-state.py') spotx-reset $customDir $spotifyPath
+}
 Invoke-Checked $managedPython (Join-Path $customDir 'scripts\install-state.py') spotx-before $customDir $spotifyPath
 $spotxScript = Join-Path $tempExtract 'spotx.ps1'
 Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/SpotX-Official/SpotX/refs/heads/main/run.ps1' -OutFile $spotxScript
@@ -199,7 +215,7 @@ $startupVbs = Join-Path $startupDir "Spotify Remastered Updater.vbs"
 $oldShortcut = Join-Path $startupDir "Spotify Remastered Updater.lnk"
 Remove-Item $oldShortcut -Force -ErrorAction SilentlyContinue
 
-$popupResponse = $wshell.Popup("Do you want Spotify to open every time you turn on your PC?", 0, "Spotify Remastered Setup", 4 + 32 + 256)
+$popupResponse = if ($null -ne $OpenAtLogin) { if ($OpenAtLogin) { 6 } else { 7 } } else { $wshell.Popup("Do you want Spotify to open every time you turn on your PC?", 0, "Spotify Remastered Setup", 4 + 32 + 256) }
 
 $helperScriptContent = @'
 param([string]$SpicetifyPath, [switch]$KeepClosed)
@@ -283,12 +299,7 @@ try {
 
 $helperScriptContent | Set-Content $helperScript -Encoding UTF8
 
-$pwshCmd = Get-Command pwsh.exe -ErrorAction SilentlyContinue
-if ($pwshCmd) { $pwshPath = $pwshCmd.Source }
-else {
-    $ps5 = Get-Command powershell.exe -ErrorAction SilentlyContinue
-    if ($ps5) { $pwshPath = $ps5.Source } else { $pwshPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" }
-}
+$pwshPath = "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe"
 
 $q = '""'
 $updaterArgs = ' -SpicetifyPath ' + $q + $script:spiceExe + $q
@@ -310,7 +321,7 @@ if ($killJob) {
 Start-Process 'wscript.exe' -ArgumentList "`"$dlVbs`"" -WindowStyle Hidden
 $ready = $false
 for ($attempt = 0; $attempt -lt 20; $attempt++) {
-    try { $response = Invoke-RestMethod 'http://127.0.0.1:27382/health' -TimeoutSec 2; if ($response.service -eq 'spotify-remastered') { $ready = $true; break } } catch {}
+    try { $response = Invoke-RestMethod 'http://127.0.0.1:27382/health' -TimeoutSec 2; if ($response.service -eq 'spotify-remastered' -and $response.status -eq 'ready') { $ready = $true; break } } catch {}
     Start-Sleep -Milliseconds 500
 }
 if (-not $ready) { throw 'The download listener did not start. Installation records were kept for repair.' }

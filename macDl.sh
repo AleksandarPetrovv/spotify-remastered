@@ -94,6 +94,8 @@ for relative, source in [('Themes/Hazy', repo/'hazy'), ('CustomApps/lyrics-plus'
 for name in ['download.js','link-import.js']: shutil.copy2(repo/'hazy/extensions'/name, cfg/'Extensions'/name)
 shutil.copy2(repo/'lyrics-plus/components/PlaybarButton.js', cfg/'Extensions/lyrics-plus-button.js')
 PY
+cp "$repo/macDel.sh" "$root/scripts/macDel.sh"
+if [ -f "$repo/hazy/extensions/uninstall-helper.py" ]; then cp "$repo/hazy/extensions/uninstall-helper.py" "$root/scripts/uninstall-helper.py"; fi
 for file in download-helper.sh download-playlist.py download-runner.py link-helper.py setup-link-tools.py repair-spicetify.py update-spicetify.py; do
     cp "$repo/hazy/extensions/$file" "$root/scripts/$file"
 done

@@ -2,8 +2,8 @@ this folder is used by spotify remastered. required tools and scripts should sta
 
 here is what each file and folder does (optional items may not be present):
 
-- local songs: your imported mp3 files. uninstall preserves this folder at the same path so playlist references keep working.
-- dependencies: reusable managed tools. preserved during uninstall to avoid downloading them again on reinstall.
+- local songs: your imported mp3 files. in-app uninstall warns when this folder contains songs and lets you open it to move them; continue opens preparation stages, then finish uninstall deletes anything left here. the standalone uninstall command keeps songs unless explicitly told to delete them.
+- dependencies: managed tools. removed after successful uninstall; tools outside this folder are left alone.
 - dependencies/downloader: python environment with the recorded spotdl, yt-dlp and matching dependencies.
 - dependencies/python: optional managed python runtime, installed only if no compatible interpreter is available.
 - dependencies/uv: optional tool used to obtain the managed python runtime.
@@ -11,6 +11,7 @@ here is what each file and folder does (optional items may not be present):
 - dependencies/yt-dlp or yt-dlp.exe: optional standalone link downloader; a compatible installed copy is reused.
 - dependencies/deno or deno.exe: optional javascript runtime for youtube extraction.
 - scripts: helper, installer and updater code. removed on uninstall after restoration succeeds.
+- backups: development snapshots grouped by component and timestamp. removed after successful uninstall.
 - scripts/download-helper.ps1 or download-helper.sh: local download listener for songs, playlists, albums and imports.
 - scripts/download-runner.py: shared spotify worker, matching fallback, metadata and embedded lyrics. separate from third-party imports.
 - scripts/download-playlist.py: mac song and collection jobs, copying, progress, cancellation and saved-file checks.
@@ -22,16 +23,16 @@ here is what each file and folder does (optional items may not be present):
 - scripts/installer-common.ps1: windows process cleanup, checked commands and bounded path removal.
 - scripts/repair-spicetify: applies the narrow scrolling compatibility fix and records its reversal.
 - scripts/spotify-remastered-updater.ps1 or update-spicetify.py: reapplies spicetify at login.
-- data: user indexes, installation ownership and recovery records; preserved by uninstall.
+- data: indexes, installation ownership and recovery records; removed after successful restoration.
 - data/import-index: source-link-to-mp3 records used to reuse existing downloads.
 - data/download-tools.json: selected tool paths.
 - data/downloader-environment.json: recorded downloader requirements and interpreter.
-- data/install-state.json and previous-assets: original settings/assets for restoration, retained until explicitly discarded.
+- data/install-state.json and previous-assets: original settings/assets for restoration, retained until successful restoration.
 - data/spicetify-status.txt: first-install record of whether spicetify already existed. reruns preserve it.
 - data/prev-theme.txt: optional legacy previous-theme record.
 - data/spotx-state.json and spotx-original: files changed by this installation's spotx step, for version-aware reversal.
 - data/wrapper-repair.json: exact compatibility edit owned by this setup.
-- cache: temporary jobs and troubleshooting logs, plus saved-file indexes. uninstall preserves it for recovery and repeat detection.
+- cache: temporary jobs and troubleshooting logs, plus saved-file indexes. removed after successful uninstall.
 - cache/spotify-worker: queued jobs for the shared spotify downloader; the worker exits after two idle minutes.
 - cache/download-logs and cache/playlist-jobs: download progress/logs and indexes of completed files.
 - cache/import-logs: temporary import jobs, limited by the helper's retention policy.

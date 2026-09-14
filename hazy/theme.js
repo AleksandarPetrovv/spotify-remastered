@@ -614,13 +614,20 @@
   }; */
 
   // Create edit home topbar button
-  const homeEdit = new Spicetify.Topbar.Button("Hazy Settings", "edit", () => {
+  const homeEdit = new Spicetify.Topbar.Button("Settings", '<svg viewBox="0 0 24 24" fill="none" width="18" height="18" aria-hidden="true"><path d="m9.5 3-.5 2-2 .9-1.8-.6-2.5 4.3 1.4 1.4v2l-1.4 1.4 2.5 4.3 1.8-.6 2 .9.5 2h5l.5-2 2-.9 1.8.6 2.5-4.3-1.4-1.4v-2l1.4-1.4-2.5-4.3-1.8.6-2-.9-.5-2h-5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.6"/></svg>', () => {
     if (document.getElementById("hazy-settings")) return;
     const content = document.createElement("div");
     content.id = "hazy-settings";
     const body = document.createElement("div");
     body.className = "hz-settings-body";
-    content.append(body);
+    const tabs = document.createElement("div");
+    tabs.className = "hz-tabs";
+    tabs.setAttribute("role", "tablist");
+    tabs.setAttribute("aria-label", "Settings sections");
+    body.id = "hz-theme-panel";
+    body.setAttribute("role", "tabpanel");
+    body.setAttribute("aria-labelledby", "hz-theme-tab");
+    content.append(tabs, body);
     const make = (tag, text, className) => {
       const node = document.createElement(tag);
       if (text) node.textContent = text;
@@ -714,6 +721,150 @@
     actions.append(reset, save);
     footer.append(status, actions);
     content.append(footer);
+    const installation = make("div", null, "hz-settings-body");
+    installation.id = "hz-installation-panel";
+    installation.setAttribute("role", "tabpanel");
+    installation.setAttribute("aria-labelledby", "hz-installation-tab");
+    installation.hidden = true;
+    const uninstall = make("section", null, "hz-section");
+    uninstall.append(make("h3", "Uninstall Spotify Remastered"),
+      make("p", "Restore Spotify and remove the managed theme, extensions and helper tools. Downloaded songs are kept.", "hz-description"));
+    uninstall.querySelector("p").textContent = "Restore Spotify and your previous Spicetify setup. Remove our tools, scripts, caches and recovery files. If you have local songs, you can move them before continuing.";
+    const note = make("p", "Preparation stays here. Finish uninstall closes Spotify and completes restoration in the background.", "hz-description");
+    const songWarning = make("div", null, "hz-song-warning");
+    songWarning.hidden = true;
+    songWarning.append(make("h3", "Keep your local songs?"),
+      make("p", "Continuing will also delete all songs left in our local songs folder. To keep them, open the folder and move them somewhere else before continuing.", "hz-description"));
+    const openSongs = make("button", "Open songs folder");
+    openSongs.type = "button";
+    openSongs.hidden = true;
+    openSongs.onclick = async () => {
+      try { await requestRemoval(`${session.url}/open-songs?token=${session.token}`, "POST"); }
+      catch (error) { removalStatus.textContent = error.message; }
+    };
+    const steps = make("ol", null, "hz-uninstall-stages");
+    ["Check restoration tools", "Check recovery files", "Finish uninstall", "Close Spotify", "Restore original files", "Finish cleanup"].forEach(label => steps.append(make("li", label)));
+    steps.hidden = true;
+    const removalActions = make("div", null, "hz-actions hz-installation-actions");
+    const cancelRemoval = make("button", "Cancel");
+    const remove = make("button", "Uninstall", "hz-danger");
+    cancelRemoval.type = remove.type = "button";
+    cancelRemoval.hidden = true;
+    const removalStatus = make("p", null, "hz-description hz-copy-status");
+    removalStatus.setAttribute("role", "status");
+    let session;
+    let confirmed = false;
+    let running = false;
+    let finishReady = false;
+    const requestRemoval = async (url, method = "GET") => {
+      const response = await fetch(url, { method, signal: AbortSignal.timeout(15000) });
+      if (!response.ok) throw new Error("Could not reach the uninstall worker.");
+      const result = await response.json();
+      if (result.status === "error") throw new Error(result.message || "Removal could not start.");
+      return result;
+    };
+    function paintRemoval(result) {
+      steps.hidden = false;
+      [...steps.children].forEach((step, index) => {
+        step.dataset.state = index < result.stage ? "complete" : index === result.stage ? "current" : "pending";
+      });
+      removalStatus.textContent = result.message;
+    }
+    async function watchRemoval() {
+      while (content.isConnected && running) {
+        try {
+          const result = await requestRemoval(`${session.url}/status?token=${session.token}`);
+          paintRemoval(result);
+          if (result.status === "prepared") {
+            running = false;
+            finishReady = true;
+            remove.disabled = false;
+            remove.textContent = "Finish uninstall";
+            cancelRemoval.hidden = false;
+            break;
+          }
+          if (result.status === "complete") { running = false; remove.textContent = "Removed"; break; }
+        } catch (error) {
+          removalStatus.textContent = error.message;
+          running = false;
+          remove.textContent = "Removal stopped";
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 700));
+      }
+    }
+    cancelRemoval.onclick = () => {
+      confirmed = false;
+      finishReady = false;
+      [...tabs.children].forEach(tab => tab.disabled = false);
+      songWarning.hidden = openSongs.hidden = true;
+      note.hidden = false;
+      cancelRemoval.hidden = true;
+      remove.textContent = "Uninstall";
+      steps.hidden = true;
+      removalStatus.textContent = "";
+    };
+    remove.onclick = async () => {
+      if (running) return;
+      remove.disabled = true;
+      try {
+        if (!confirmed && !finishReady) {
+          removalStatus.textContent = "Checking uninstall tools…";
+          session = await requestRemoval("http://127.0.0.1:27382/uninstall-prepare", "POST");
+          if (session.hasLocalSongs) {
+            confirmed = true;
+            songWarning.hidden = openSongs.hidden = false;
+            note.hidden = true;
+            cancelRemoval.hidden = false;
+            remove.textContent = "Continue";
+            removalStatus.textContent = "";
+            return;
+          }
+        }
+        {
+          const endpoint = finishReady ? "/start" : "/check";
+          const result = await requestRemoval(`${session.url}${endpoint}?token=${session.token}${finishReady ? "&deleteSongs=1" : ""}`, "POST");
+          songWarning.hidden = openSongs.hidden = true;
+          note.hidden = false;
+          running = true;
+          cancelRemoval.hidden = true;
+          remove.textContent = finishReady ? "Uninstalling…" : "Preparing…";
+          [...tabs.children].forEach(tab => tab.disabled = true);
+          paintRemoval(result);
+          watchRemoval();
+        }
+      } catch (error) {
+        removalStatus.textContent = error.message;
+      } finally { remove.disabled = running; }
+    };
+    removalActions.append(openSongs, cancelRemoval, remove);
+    uninstall.append(note, songWarning, steps, removalActions, removalStatus);
+    installation.append(uninstall);
+    content.insertBefore(installation, footer);
+    const panels = [body, installation];
+    function selectTab(index, focus = false) {
+      [...tabs.children].forEach((tab, i) => {
+        tab.setAttribute("aria-selected", String(i === index));
+        tab.tabIndex = i === index ? 0 : -1;
+        panels[i].hidden = i !== index;
+      });
+      footer.hidden = index !== 0;
+      if (focus) tabs.children[index].focus();
+    }
+    ["Theme", "Installation"].forEach((label, index) => {
+      const tab = make("button", label);
+      tab.type = "button";
+      tab.id = index === 0 ? "hz-theme-tab" : "hz-installation-tab";
+      tab.setAttribute("role", "tab");
+      tab.setAttribute("aria-controls", panels[index].id);
+      tab.onclick = () => selectTab(index);
+      tab.onkeydown = event => {
+        const next = { ArrowRight: (index + 1) % 2, ArrowLeft: (index + 1) % 2, Home: 0, End: 1 }[event.key];
+        if (next !== undefined) { event.preventDefault(); selectTab(next, true); }
+      };
+      tabs.append(tab);
+    });
+    selectTab(0);
     reset.onclick = () => {
       for (const opt of toggleInfo) toggleInputs.get(opt.id).setAttribute("aria-checked", String(opt.defVal));
       for (const opt of sliders) { const inputs = sliderInputs.get(opt.id); inputs.range.value = inputs.number.value = opt.defVal; inputs.paint(); }
@@ -744,7 +895,7 @@
       } catch (error) { status.textContent = error instanceof TypeError ? "Enter a valid image URL." : error.message; }
       finally { save.disabled = false; reset.disabled = false; }
     };
-    Spicetify.PopupModal.display({ title: "Hazy settings", content });
+    Spicetify.PopupModal.display({ title: "Settings", content });
     const overlay = content.closest(".GenericModal__overlay");
     const duration = matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 : 160;
     overlay?.animate([{ opacity: 0 }, { opacity: 1 }], { duration, easing: "ease-out" });
@@ -788,7 +939,7 @@
       const [visible, setVisible] = Spicetify.React.useState(false);
       Spicetify.React.useLayoutEffect(() => { homeEdit.element.firstElementChild?.appendChild(button); }, []);
       return Spicetify.React.createElement(TooltipWrapper,
-        { label: "Hazy Settings", placement: "bottom", showDelay: 200, isOpen: visible },
+        { label: "Settings", placement: "bottom", showDelay: 200, isOpen: visible },
         Spicetify.React.createElement("span", {
           style: { display: "inline-flex" },
           onMouseEnter: () => setVisible(true), onMouseLeave: () => setVisible(false),

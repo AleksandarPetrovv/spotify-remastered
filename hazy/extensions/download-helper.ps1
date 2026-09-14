@@ -414,8 +414,33 @@ try { while ($listener.IsListening) {
         continue
     }
 
+    if ($route -eq '/uninstall-prepare') {
+        if ($ctx.Request.HttpMethod -ne 'POST' -or $ctx.Request.Headers['Origin'] -ne 'https://xpui.app.spotify.com') {
+            Respond $ctx '{"status":"error","message":"Uninstall must be started from Spotify settings."}'
+            continue
+        }
+        try {
+            $python = Join-Path $env:LOCALAPPDATA 'spotify-remastered\dependencies\downloader\Scripts\python.exe'
+            $tool = Join-Path $PSScriptRoot 'uninstall-helper.py'
+            $result = & $python $tool (Join-Path $env:LOCALAPPDATA 'spotify-remastered')
+            Respond $ctx ($result -join "`n")
+        } catch { Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress) }
+        continue
+    }
+
     switch ($route) {
-        '/health' { Respond $ctx '{"status":"ready","service":"spotify-remastered"}' }
+        '/health' {
+            $root = Join-Path $env:LOCALAPPDATA 'spotify-remastered'
+            $python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
+            $ready = Test-Path -LiteralPath $python -PathType Leaf
+            if ($ready) {
+                try {
+                    $actual = (& $python -c 'import sys; print(sys.executable)' 2>$null | Select-Object -Last 1)
+                    $ready = $LASTEXITCODE -eq 0 -and $actual -notmatch 'Packages[\\/]OpenAI\.Codex_.*[\\/]LocalCache[\\/]'
+                } catch { $ready = $false }
+            }
+            Respond $ctx (@{ status = $(if ($ready) { 'ready' } else { 'error' }); service = 'spotify-remastered'; root = $root; toolsReady = $ready } | ConvertTo-Json -Compress)
+        }
         "/open-folder" {
             try {
                 $id = $ctx.Request.QueryString['id']

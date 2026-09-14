@@ -96,7 +96,7 @@ case "$route" in
         RUNNER_PYTHON="$HOME/.local/share/spotify-remastered/dependencies/downloader/bin/python"
         RUNNER_SCRIPT="$HOME/.local/share/spotify-remastered/scripts/download-runner.py"
         if [ -x "$RUNNER_PYTHON" ] && [ -f "$RUNNER_SCRIPT" ]; then
-            DOWNLOAD_COMMAND=("$RUNNER_PYTHON" "$RUNNER_SCRIPT")
+            DOWNLOAD_COMMAND=("$RUNNER_PYTHON" "$RUNNER_SCRIPT" "--client")
         fi
         "${DOWNLOAD_COMMAND[@]}" download \
             "https://open.spotify.com/track/$trackId" \

@@ -64,7 +64,7 @@ try {
     foreach ($file in $files) {
         $entry = $entries[$file.FullName]
         if (-not $entry) { continue }
-        $songs += @{ title = $(if ($entry.tags.title) { $entry.tags.title } else { $file.BaseName }); artist = [string]$entry.tags.artist; source = [string]$entry.tags.album; duration = $entry.duration; cover = $covers[$file.FullName]; folder = $folder }
+        $songs += @{ file = $file.Name; title = $(if ($entry.tags.title) { $entry.tags.title } else { $file.BaseName }); artist = [string]$entry.tags.artist; source = [string]$entry.tags.album; duration = $entry.duration; cover = $covers[$file.FullName]; folder = $folder }
     }
     $cacheJson = ConvertTo-Json -InputObject @($entries.Values) -Depth 6 -Compress
     [IO.File]::WriteAllText("$cachePath.tmp", $cacheJson, (New-Object Text.UTF8Encoding($false)))

@@ -217,7 +217,7 @@ def local_catalogue():
         songs = []
         for name, entry in entries.items():
             tags = entry['tags']
-            songs.append(dict(title=tags.get('title') or Path(name).stem, artist=tags.get('artist', ''), source=tags.get('album', ''), duration=entry['duration'], cover=indexes.get(name, {}).get('cover', ''), folder=str(folder)))
+            songs.append(dict(file=Path(name).name, title=tags.get('title') or Path(name).stem, artist=tags.get('artist', ''), source=tags.get('album', ''), duration=entry['duration'], cover=indexes.get(name, {}).get('cover', ''), folder=str(folder)))
         return dict(status='done', songs=songs, folder=str(folder))
 
 

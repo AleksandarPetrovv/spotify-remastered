@@ -214,7 +214,7 @@
         if (!last) activeDownloads.forEach(function(dl) { if (!last && dl.status === 'queued') last = dl; });
         ui.open.hidden = count > 0 || !saved;
         ui.actions.hidden = ui.open.hidden;
-        ui.open.onclick = function() { openFolder(doneId, 'track'); };
+        ui.open.onclick = function() { var done = activeDownloads.get(doneId); if (done && done.openFolder) done.openFolder(); else openFolder(doneId, 'track'); };
         ui.cancel.setAttribute('aria-label', count ? 'Cancel song downloads' : 'Dismiss song download');
         ui.cancel.title = count ? 'Cancel download' : 'Dismiss';
         var phase = count ? 'downloading' : failed ? 'error' : saved ? 'done' : 'cancelled';
@@ -230,7 +230,7 @@
             ui.summary.hidden = count <= 1;
             ui.text.textContent = last.name;
             ui.text.title = count === 1 ? last.name : '';
-            ui.detail.textContent = last.artist;
+            ui.detail.textContent = [last.artist, last.extra].filter(Boolean).join(' · ');
             ui.detail.hidden = !ui.detail.textContent;
             ui.detail.title = last.name + (last.artist ? ' — ' + last.artist : '');
         } else {
@@ -277,6 +277,11 @@
             activeDownloads.forEach(function(dl, id) { if (pendingSong(dl)) jobs.push({ id: id, dl: dl }); });
             await Promise.all(jobs.map(async function(job) {
                 try {
+                    if (job.dl.cancelImport) {
+                        await job.dl.cancelImport();
+                        job.dl.finish('cancelled');
+                        return;
+                    }
                     var result = await helperRequest('cancel?id=' + encodeURIComponent(job.id), 8000);
                     if (result.status !== 'cancelled') throw new Error('Could not cancel the download.');
                     if (activeDownloads.get(job.id) === job.dl) job.dl.finish('cancelled');
@@ -299,6 +304,27 @@
         arrangeNotifs();
         exitToast(el, function() { el.remove(); });
     }
+
+    window.SpotifyRemasteredDownloads = {
+        backgroundImport: function(task) {
+            var id = 'import:' + task.id;
+            var dl = { name: task.title, artist: task.artist || '', cover: task.cover || '', status: 'downloading',
+                extra: task.extra || '', cancelImport: task.cancel, openFolder: task.openFolder };
+            dl.finish = function(status, message) {
+                if (!pendingSong(dl)) return;
+                dl.status = status;
+                dl.message = message || '';
+                dl.cancelImport = null;
+                updateNotif();
+            };
+            activeDownloads.set(id, dl);
+            showNotif();
+            return {
+                update: function(extra) { if (pendingSong(dl)) { dl.extra = extra; updateNotif(); } },
+                finish: dl.finish
+            };
+        }
+    };
 
     function artistsForTrack(track) {
         function items(value) { return Array.isArray(value) ? value : value && Array.isArray(value.items) ? value.items : []; }
@@ -546,8 +572,12 @@
             state.dismiss = dismissTimer(state.remove, 5000);
         };
         try {
+            var selection = await helperRequest('playlist-folder', 180000);
+            if (selection.status === 'no_folder') { state.finish('Cancelled.'); return; }
+            if (selection.status !== 'selected') throw new Error(selection.message || 'Could not open the folder picker.');
             var uri = 'spotify:' + collection.type + ':' + collection.id;
             var tracks = [];
+            var localSongs = null;
             var offset = 0;
             var album = collection.type === 'album';
             var albumCover = '';
@@ -571,7 +601,21 @@
                     page = await withTimeout(Spicetify.Platform.PlaylistAPI.getContents(uri, { offset: offset, limit: 100 }), 20000);
                 }
                 if (!page || !Array.isArray(page.items) || !Number.isFinite(page.totalLength)) throw new Error('Could not read the complete ' + state.type + '.');
+                if (!album && localSongs === null && page.items.some(function(item) { return item.isLocal || /^spotify:local:/.test(item.uri || ''); })) {
+                    var catalogue = await helperRequest('link-local', 120000);
+                    localSongs = catalogue.songs || [];
+                }
                 page.items.forEach(function(item) {
+                    if (!album && /^spotify:local:/.test(item.uri || '')) {
+                        var parts = item.uri.split(':').slice(2).map(function(part) { try { return decodeURIComponent(part.replace(/\+/g, ' ')); } catch (_) { return part; } });
+                        var matches = (localSongs || []).filter(function(song) {
+                            return song.artist === parts[0] && song.source === parts[1] && song.title === parts[2] && Math.abs(song.duration - Number(parts[3])) < 3;
+                        });
+                        var local = matches.length === 1 ? matches[0] : null;
+                        tracks.push({ id: item.uri, name: item.name || parts[2], localFile: local ? local.file : '' });
+                        state.trackInfo.set(item.uri, { id: item.uri, name: item.name || parts[2], artist: parts[0], cover: local && local.cover || coverFor(item) });
+                        return;
+                    }
                     var track = downloadUri(item.uri);
                     if (!track || track.type !== 'track' || item.isLocal || item.isPlayable === false || item.playability && item.playability.playable === false) { state.omitted++; return; }
                     tracks.push({ id: track.id, name: item.name || track.id });
@@ -583,7 +627,7 @@
             }
             if (state.cancelled) { state.finish('Cancelled.'); return; }
             if (!tracks.length) { state.finish('No downloadable songs in this ' + state.type + '.', true); return; }
-            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks });
+            var data = await helperRequest('playlist', 180000, { id: collection.id, kind: collection.type, name: state.name, tracks: tracks, folderToken: selection.token });
             if (data.status === 'no_folder' || data.status === 'cancelled') { state.finish('Cancelled.'); return; }
             if (data.status !== 'started' && data.status !== 'already_downloading') throw new Error(data.message || 'Could not start the download. Update the download helper and try again.');
             state.helperStarted = true;

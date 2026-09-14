@@ -92,20 +92,48 @@ def worker(job):
             else:
                 queue.append((track, target))
             seen.add(track['id'])
-        ffmpeg = managed_ffmpeg()
+        ffmpeg = managed_ffmpeg() if any(not track['id'].startswith('spotify:local:') for track, target in queue) else None
         while queue or active:
             if (job / 'cancel').exists():
                 state['status'] = 'cancelled'
                 break
             while queue and len(active) < 1:
                 track, target = queue.pop(0)
+                if track['id'].startswith('spotify:local:'):
+                    state['current'] = [track['name']]
+                    state['currentIds'] = [track['id']]
+                    write_json(job / 'status.json', state)
+                    created = False
+                    copied = False
+                    try:
+                        name = track.get('localFile', '')
+                        root = ROOT / 'local songs'
+                        source = root / name
+                        if not name or Path(name).name != name or source.suffix.lower() != '.mp3' or source.is_symlink() or source.resolve().parent != root.resolve() or not source.is_file() or not source.stat().st_size:
+                            raise RuntimeError('The song could not be uniquely found in local songs.')
+                        with source.open('rb') as incoming, target.open('xb') as outgoing:
+                            created = True
+                            shutil.copyfileobj(incoming, outgoing)
+                        copied = True
+                        state['saved'] += 1
+                        index[track['id']] = target.name
+                        try:
+                            write_json(index_path, index)
+                        except OSError:
+                            pass
+                    except Exception:
+                        state['failed'].append(dict(track, message='Could not copy this song from local songs. Check that its MP3 still exists and the destination is writable.'))
+                    finally:
+                        if created and not copied:
+                            target.unlink(missing_ok=True)
+                    continue
                 work = job / track['id']
                 work.mkdir()
                 try:
                     with (work / 'stdout.log').open('wb') as out, (work / 'stderr.log').open('wb') as err:
                         runner_python = ROOT / 'dependencies/downloader/bin/python'
                         runner = ROOT / 'scripts/download-runner.py'
-                        command = [str(runner_python), str(runner)] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'dependencies/spotdl')]
+                        command = [str(runner_python), str(runner), '--client'] if runner_python.is_file() and runner.is_file() else [str(ROOT / 'dependencies/spotdl')]
                         process = subprocess.Popen(command + ['download',
                             'https://open.spotify.com/track/' + track['id'], '--output', '{title}.{output-ext}',
                             '--ffmpeg', ffmpeg, '--format', 'mp3', '--audio', 'youtube-music', 'youtube',
@@ -116,7 +144,14 @@ def worker(job):
             for entry in active[:]:
                 track, target, work, process, started = entry
                 code = process.poll()
-                if code is None and time.monotonic() - started < 600:
+                if (work / 'worker-started').exists():
+                    started = (work / 'worker-started').stat().st_mtime
+                    elapsed = time.time() - started
+                elif (ROOT / 'dependencies/downloader/bin/python').is_file() and (ROOT / 'scripts/download-runner.py').is_file():
+                    elapsed = 0
+                else:
+                    elapsed = time.monotonic() - started
+                if code is None and elapsed < 600:
                     continue
                 try:
                     if code is None:
@@ -156,6 +191,17 @@ def worker(job):
 def request(route, query, length):
     if route == 'OPTIONS':
         return {}
+    if route == '/playlist-folder':
+        JOBS.mkdir(parents=True, exist_ok=True)
+        for previous in JOBS.glob('selection-*.json'):
+            if time.time() - previous.stat().st_mtime > 1800:
+                previous.unlink(missing_ok=True)
+        result = subprocess.run(['osascript', '-e', 'POSIX path of (choose folder with prompt "Select download location")'], capture_output=True, text=True)
+        if result.returncode or not result.stdout.strip():
+            return {'status': 'no_folder'}
+        token = uuid.uuid4().hex
+        write_json(JOBS / ('selection-' + token + '.json'), {'folder': result.stdout.strip()})
+        return {'status': 'selected', 'token': token}
     playlist_id = parse_qs(query).get('id', [''])[0]
     body = None
     if route == '/playlist':
@@ -196,13 +242,23 @@ def request(route, query, length):
     if state['status'] == 'downloading':
         return {'status': 'already_downloading'}
     tracks = body.get('tracks', [])
-    if not tracks or len(tracks) > 10000 or any(not re.fullmatch(r'[a-zA-Z0-9]{22}', track.get('id', '')) for track in tracks):
+    if not tracks or len(tracks) > 10000 or any(not re.fullmatch(r'[a-zA-Z0-9]{22}|spotify:local:.{1,4082}', track.get('id', '')) for track in tracks):
         raise ValueError('Invalid or empty playlist.')
-    result = subprocess.run(['osascript', '-e', 'POSIX path of (choose folder with prompt "Select download location")'],
-                            capture_output=True, text=True)
-    if result.returncode != 0 or not result.stdout.strip():
-        return {'status': 'no_folder'}
-    folder = Path(result.stdout.strip()) / safe_name(body.get('name', 'Playlist'))
+    token = body.get('folderToken')
+    if token:
+        if not re.fullmatch(r'[a-f0-9]{32}', token):
+            raise ValueError('Invalid folder selection.')
+        selection = JOBS / ('selection-' + token + '.json')
+        if not selection.is_file() or time.time() - selection.stat().st_mtime > 1800:
+            raise ValueError('Folder selection expired. Please start the download again.')
+        selected = json.loads(selection.read_text())['folder']
+        selection.unlink()
+    else:
+        result = subprocess.run(['osascript', '-e', 'POSIX path of (choose folder with prompt "Select download location")'], capture_output=True, text=True)
+        if result.returncode != 0 or not result.stdout.strip():
+            return {'status': 'no_folder'}
+        selected = result.stdout.strip()
+    folder = Path(selected) / safe_name(body.get('name', 'Playlist'))
     folder.mkdir(exist_ok=True)
     job = JOBS / uuid.uuid4().hex
     job.mkdir()

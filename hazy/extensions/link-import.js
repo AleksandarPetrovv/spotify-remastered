@@ -137,6 +137,9 @@
         if (open) return;
         open = true;
         let source = 'YouTube', job = null, busy = false, closed = false, timer = null;
+        let importing = false, cancelled = false, background = null;
+        const stopped = () => cancelled || (closed && !importing);
+        const importId = crypto.randomUUID();
         const root = element('div'); root.id = 'sr-link-import';
         root.append(element('p', 'Add a local song to “' + name + '”. The MP3 stays in Spotify Remastered’s local songs folder.'));
         const tabs = element('div', null, 'sr-link-tabs'); tabs.setAttribute('role','tablist');
@@ -220,12 +223,12 @@
         async function waitJob(id, phase) {
             const deadline=Date.now()+630000;
             let errors=0;
-            while(!closed && Date.now()<deadline) {
+            while(!stopped() && Date.now()<deadline) {
                 try {const result=await request('link-status?id='+id);errors=0;if(result.status!==phase)return result;}
                 catch(error){if(++errors>=3)throw error;}
                 await sleep(1000);
             }
-            if(closed)return null;
+            if(stopped())return null;
             throw new Error('Import timed out. Check the import logs.');
         }
         primary.onclick=async()=>{
@@ -244,38 +247,50 @@
                     preview.hidden=false;preview.style.display='flex';status.textContent='Check the title and artist before adding.';primary.textContent='Download and add';
                 } else {
                     if(!title.value.trim() || !artist.value.trim())throw new Error('Enter the song title and artist.');
+                    importing=true;
                     status.textContent='Downloading “'+title.value.trim()+'”…';
                     job=await request('link-download',{id:job.id,title:title.value.trim(),artist:artist.value.trim()});
                     if(job.reused)status.textContent='Already downloaded. Adding to your playlist…';
-                    if(closed){request('link-cancel?id='+job.id).catch(()=>{});return;}
+                    if(cancelled){request('link-cancel?id='+job.id).catch(()=>{});return;}
                     job=await waitJob(job.id,'downloading');if(!job)return;
                     if(job.status==='cancelled')throw new Error('Import cancelled.');
                     cancel.textContent='Close';
-                    const result=await addIndexed(job,uri,status,()=>closed);
+                    background?.update('Adding to “'+name+'”…');
+                    const result=await addIndexed(job,uri,status,stopped);
                     status.textContent=(result==='existing'?'Already in “':'Added to “')+name+'”.';primary.hidden=true;another.hidden=false;
+                    background?.finish('done');
                 }
             } catch(error) {
+                background?.finish(cancelled?'cancelled':'error',error.message);
                 if(!closed){status.textContent=error.message;
                     if(job?.status==='done'){primary.hidden=true;const folder=element('button','Open folder');folder.onclick=()=>request('link-folder?id='+job.id).catch(error=>status.textContent=error.message);const files=element('button','Open local files');files.onclick=()=>{Spicetify.Platform.History.push('/collection/local-files');close();};actions.prepend(files,folder);}
                     else if(job?.status!=='ready'){job=null;primary.textContent='Find song';}
                 }
-            } finally {if(!closed){setBusy(false);cancel.disabled=false;}}
+            } finally {importing=false;if(!closed){setBusy(false);cancel.disabled=false;}}
         };
         Spicetify.PopupModal.display({title:'Add from link',content:root,isLarge:false});
         const overlay=root.closest('.GenericModal__overlay');
         const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;
         overlay?.animate([{opacity:0},{opacity:1}],{duration:reduced?0:180,easing:'ease-out'});
         let closing=false;
-        async function close() {
+        async function close(cancelImport=false) {
             if(closing || cancel.disabled)return;closing=true;closed=true;clearTimeout(timer);
-            if(job?.id && job.status!=='done') request('link-cancel?id='+job.id).catch(()=>{});
+            if(cancelImport)cancelled=true;
+            if(importing && !cancelled) {
+                const task = {id:importId,title:title.value.trim(),artist:artist.value.trim(),cover:job?.cover,
+                    extra:job?.status==='done'?'Adding to “'+name+'”…':'For “'+name+'”',
+                    cancel:async()=>{cancelled=true;if(job?.id && job.status!=='done')await request('link-cancel?id='+job.id);},
+                    openFolder:()=>job?.id && request('link-folder?id='+job.id).catch(error=>Spicetify.showNotification(error.message,true))};
+                background=window.SpotifyRemasteredDownloads?.backgroundImport(task);
+                if(!background)Spicetify.showNotification('Import continues in the background.');
+            } else if(job?.id && job.status!=='done') request('link-cancel?id='+job.id).catch(()=>{});
             window.removeEventListener('keydown',keydown,true);overlay?.removeEventListener('click',click,true);
             try{await overlay?.animate([{opacity:1},{opacity:0}],{duration:reduced?0:160,easing:'ease-in',fill:'forwards'}).finished;}catch{}
             if(root.isConnected)Spicetify.PopupModal.hide();open=false;
         }
         function click(event){if(event.target===overlay || event.target.closest('.spicetify-popup-closeBtn')){event.preventDefault();event.stopImmediatePropagation();close();}}
         function keydown(event){if(event.key==='Escape'){event.preventDefault();event.stopImmediatePropagation();close();}}
-        overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=close;input.focus();
+        overlay?.addEventListener('click',click,true);window.addEventListener('keydown',keydown,true);cancel.onclick=()=>close(importing && job?.status!=='done');input.focus();
     }
     const tooltipRoots = new Map();
     function attachTooltip(button, menu) {

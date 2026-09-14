@@ -11,6 +11,7 @@ public class WinHelper {
 
 $script:downloads = @{}
 $script:playlists = @{}
+$script:folderSelections = @{}
 $script:singleOrder = 0
 $script:lastLogCleanup = [DateTime]::MinValue
 
@@ -52,21 +53,42 @@ function Start-Download($trackId, $folder, $spotdl, $ffmpeg, $jobsDir, $fileName
     $executable = $spotdl
     if ((Test-Path -LiteralPath $runner -PathType Leaf) -and (Test-Path -LiteralPath $python -PathType Leaf)) {
         $executable = $python
-        $argsText = "`"$runner`" $argsText"
+        $argsText = "`"$runner`" --client $argsText"
     }
     # drain both streams to logs; unread redirected pipes can deadlock.
-    $proc = Start-Process -FilePath $executable -ArgumentList $argsText -WorkingDirectory $jobDir -PassThru -WindowStyle Hidden `
-        -RedirectStandardOutput (Join-Path $jobDir 'stdout.log') -RedirectStandardError (Join-Path $jobDir 'stderr.log')
+    $proc = New-Object Diagnostics.Process
+    $proc.StartInfo.FileName = $executable
+    $proc.StartInfo.Arguments = $argsText
+    $proc.StartInfo.WorkingDirectory = $jobDir
+    $proc.StartInfo.UseShellExecute = $false
+    $proc.StartInfo.CreateNoWindow = $true
+    $proc.StartInfo.RedirectStandardOutput = $true
+    $proc.StartInfo.RedirectStandardError = $true
+    $proc.StartInfo.StandardOutputEncoding = [Text.Encoding]::UTF8
+    $proc.StartInfo.StandardErrorEncoding = [Text.Encoding]::UTF8
+    $proc.Start() | Out-Null
+    $stdout = $proc.StandardOutput.ReadToEndAsync()
+    $stderr = $proc.StandardError.ReadToEndAsync()
     $processHandle = $proc.Handle
-    return @{ Process = $proc; Status = 'downloading'; Message = $null; StartedAt = [DateTime]::UtcNow;
-        JobDir = $jobDir; Folder = $folder; FileName = $fileName; TimeoutSeconds = 600; CompletedAt = $null }
+    $result = @{ Process = $proc; Status = 'downloading'; Message = $null; StartedAt = [DateTime]::UtcNow;
+        JobDir = $jobDir; Folder = $folder; FileName = $fileName; TimeoutSeconds = 600; CompletedAt = $null;
+        SharedWorker = $executable -eq $python; WorkerStarted = $false; Stdout = $stdout; Stderr = $stderr }
+    return $result
 }
 
 function Update-Download($dl) {
     if ($dl.Status -ne 'downloading') { return }
+    if ($dl.SharedWorker -and -not $dl.WorkerStarted) {
+        if (Test-Path -LiteralPath (Join-Path $dl.JobDir 'worker-started')) { $dl.WorkerStarted = $true; $dl.StartedAt = [DateTime]::UtcNow }
+        else { $dl.StartedAt = [DateTime]::UtcNow }
+    }
     $dl.Process.Refresh()
     if ($dl.Process.HasExited) {
         $dl.Process.WaitForExit()
+        if ($dl.Stdout) {
+            [IO.File]::WriteAllText((Join-Path $dl.JobDir 'stdout.log'), $dl.Stdout.Result)
+            [IO.File]::WriteAllText((Join-Path $dl.JobDir 'stderr.log'), $dl.Stderr.Result)
+        }
         # spotdl can exit zero after provider errors; require audio from this job.
         $files = @(Get-ChildItem -LiteralPath $dl.JobDir -File -Filter '*.mp3' | Where-Object { $_.Length -gt 0 })
         if ($dl.Process.ExitCode -ne 0 -or $files.Count -eq 0) {
@@ -166,7 +188,7 @@ function Start-Playlist($body, $folder, $tools) {
     $tracks = @($body.tracks)
     if ($body.id -notmatch '^[a-zA-Z0-9]{22}$' -or $tracks.Count -eq 0 -or $tracks.Count -gt 10000) { throw 'Invalid or empty playlist.' }
     foreach ($track in $tracks) {
-        if ($track.id -notmatch '^[a-zA-Z0-9]{22}$') { throw 'Invalid Spotify track ID in playlist.' }
+        if ($track.id -notmatch '^[a-zA-Z0-9]{22}$' -and ($track.id -notlike 'spotify:local:*' -or $track.id.Length -gt 4096)) { throw 'Invalid track ID in playlist.' }
     }
     $destination = Join-Path $folder (Safe-Name $body.name)
     New-Item -ItemType Directory -Path $destination -Force -ErrorAction Stop | Out-Null
@@ -203,7 +225,7 @@ function Start-Playlist($body, $folder, $tools) {
         $reserved[$name] = $track.id
         $path = Join-Path $destination $name
         if ((Test-Path -LiteralPath $path -PathType Leaf) -and (Get-Item -LiteralPath $path).Length -gt 0) { $index[$track.id] = $name; $skipped++; continue }
-        $queue.Enqueue(@{ Id = $track.id; Name = $track.name; FileName = $name })
+        $queue.Enqueue(@{ Id = $track.id; Name = $track.name; FileName = $name; Local = $track.id -like 'spotify:local:*'; LocalFile = $track.localFile })
     }
     return @{ Status = 'downloading'; Queue = $queue; Active = @{}; Saved = 0; Skipped = $skipped;
         Total = $tracks.Count; Name = $body.name; Id = $body.id; Failed = (New-Object System.Collections.ArrayList); Folder = $destination;
@@ -214,7 +236,21 @@ function Update-Playlist($batch) {
     if ($batch.Status -ne 'downloading') { return }
     foreach ($id in @($batch.Active.Keys)) {
         $entry = $batch.Active[$id]
-        Update-Download $entry.Download
+        if ($entry.Track.Local) {
+            $temporary = Join-Path $batch.Folder ([Guid]::NewGuid().ToString('N') + '.pending')
+            try {
+                $name = [string]$entry.Track.LocalFile
+                if (-not $name -or [IO.Path]::GetFileName($name) -cne $name -or [IO.Path]::GetExtension($name) -ine '.mp3') { throw 'The song could not be uniquely found in local songs.' }
+                $source = Get-Item -LiteralPath (Join-Path (Join-Path $env:LOCALAPPDATA 'spotify-remastered\local songs') $name) -ErrorAction Stop
+                if ($source.PSIsContainer -or $source.Length -eq 0 -or ($source.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'The local MP3 is missing or unavailable.' }
+                [IO.File]::Copy($source.FullName, $temporary, $false)
+                [IO.File]::Move($temporary, (Join-Path $batch.Folder $entry.Track.FileName))
+                $entry.Download.Status = 'done'
+            } catch {
+                $entry.Download.Status = 'error'
+                $entry.Download.Message = 'Could not copy this song from local songs. Check that its MP3 still exists and the destination is writable.'
+            } finally { if (Test-Path -LiteralPath $temporary) { Remove-Item -LiteralPath $temporary -Force } }
+        } else { Update-Download $entry.Download }
         if ($entry.Download.Status -eq 'downloading') { continue }
         if ($entry.Download.Status -eq 'done') {
             $batch.Saved++
@@ -227,7 +263,8 @@ function Update-Playlist($batch) {
     while ($batch.Active.Count -lt 1 -and $batch.Queue.Count -gt 0) {
         $track = $batch.Queue.Dequeue()
         try {
-            $dl = Start-Download $track.Id $batch.Folder $batch.Tools.Spotdl $batch.Tools.FFmpeg $batch.Tools.JobsDir $track.FileName
+            $dl = if ($track.Local) { @{ Status = 'downloading'; Message = $null; Process = $null } }
+                else { Start-Download $track.Id $batch.Folder $batch.Tools.Spotdl $batch.Tools.FFmpeg $batch.Tools.JobsDir $track.FileName }
             $batch.Active[$track.Id] = @{ Download = $dl; Track = $track }
         } catch { $batch.Failed.Add(@{ id = $track.Id; name = $track.Name; message = $_.Exception.Message }) | Out-Null }
     }
@@ -279,6 +316,21 @@ try { while ($listener.IsListening) {
     if (Get-Command Update-LocalCatalogue -ErrorAction SilentlyContinue) { Update-LocalCatalogue }
     $ctx = $listener.EndGetContext($pending)
     $pending.AsyncWaitHandle.Close()
+    if ($ctx.Request.Url.AbsolutePath -eq '/playlist-folder' -and $ctx.Request.HttpMethod -eq 'GET') {
+        try {
+            foreach ($key in @($script:folderSelections.Keys)) {
+                if ($script:folderSelections[$key].Expires -lt [DateTime]::UtcNow) { $script:folderSelections.Remove($key) }
+            }
+            $folder = Select-DownloadFolder
+            if ($folder) {
+                $token = [Guid]::NewGuid().ToString('N')
+                $script:folderSelections[$token] = @{ Folder = $folder; Expires = [DateTime]::UtcNow.AddMinutes(30) }
+                Respond $ctx (@{ status = 'selected'; token = $token } | ConvertTo-Json -Compress)
+            } else { Respond $ctx '{"status":"no_folder"}' }
+        } catch { Respond $ctx (@{ status = 'error'; message = $_.Exception.Message } | ConvertTo-Json -Compress) }
+        continue
+    }
+    if ($ctx.Request.Url.AbsolutePath -ne '/download') {
     foreach ($id in @($script:downloads.Keys)) {
         $dl = $script:downloads[$id]
         Update-Download $dl
@@ -291,6 +343,7 @@ try { while ($listener.IsListening) {
         $batch = $script:playlists[$id]
         Update-Playlist $batch
         if ($batch.CompletedAt -and ([DateTime]::UtcNow - $batch.CompletedAt).TotalMinutes -gt 30) { $script:playlists.Remove($id) }
+    }
     }
     if ($ctx.Request.HttpMethod -eq 'OPTIONS') {
         $ctx.Response.Headers.Add('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
@@ -327,7 +380,12 @@ try { while ($listener.IsListening) {
                     Respond $ctx '{"status":"already_downloading"}'
                     break
                 }
-                $folder = Select-DownloadFolder
+                if ($body.folderToken) {
+                    $selection = $script:folderSelections[[string]$body.folderToken]
+                    if (-not $selection -or $selection.Expires -lt [DateTime]::UtcNow) { throw 'Folder selection expired. Please start the download again.' }
+                    $folder = $selection.Folder
+                    $script:folderSelections.Remove([string]$body.folderToken)
+                } else { $folder = Select-DownloadFolder }
                 if (-not $folder) { Respond $ctx '{"status":"no_folder"}'; break }
                 $batch = Start-Playlist $body $folder (Get-Downloader)
                 $script:playlists[$batchId] = $batch

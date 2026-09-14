@@ -310,6 +310,7 @@
         for (const [host, root] of tooltipRoots) {
             if (!host.isConnected) {root.unmount();tooltipRoots.delete(host);}
         }
+        document.body.classList.toggle('sr-local-files-page',Spicetify.Platform.History.location.pathname==='/collection/local-files');
         const match=Spicetify.Platform.History.location.pathname.match(/^\/playlist\/([A-Za-z0-9]{22})/);
         if(!match){document.querySelectorAll('.sr-link-tooltip').forEach(host=>{tooltipRoots.get(host)?.unmount();tooltipRoots.delete(host);host.remove();});return;}
         const menu=document.querySelector('.main-actionBar-ActionBar .main-moreButton-button')
@@ -328,7 +329,25 @@
         const button=element('button',null,'sr-link-button');button.type='button';button.setAttribute('aria-label','Add from YouTube or SoundCloud');button.innerHTML=icon;
         button.onclick=()=>showImport(uri,metadata.name || 'Playlist');attachTooltip(button,menu);
     }
+    let checkingLocalFiles=false;
+    async function refreshLocalFiles(){
+        if(checkingLocalFiles)return;
+        checkingLocalFiles=true;
+        try{
+            const local=Spicetify.Platform.LocalFilesAPI;
+            const catalogue=await request('link-local');
+            const tracks=await local.getTracks();
+            const folder=catalogue.folder.replace(/\\/g,'/').toLowerCase();
+            const stale=tracks.some(track=>track.album.images.some(image=>{
+                if(!image.url.startsWith('spotify:localfileimage:'))return false;
+                const path=decodeURIComponent(image.url.slice('spotify:localfileimage:'.length)).replace(/\\/g,'/').toLowerCase();
+                return path.startsWith(folder+'/') && !catalogue.songs.some(song=>song.title===track.name && Math.abs(song.duration-track.duration.milliseconds/1000)<3);
+            }));
+            if(stale){await local.removeFolder({path:catalogue.folder});await local.addFolder({path:catalogue.folder});}
+        }catch{}finally{checkingLocalFiles=false;}
+    }
     function schedule(){mount();}
+    function navigate(){mount();if(Spicetify.Platform.History.location.pathname==='/collection/local-files')refreshLocalFiles();}
     new MutationObserver(schedule).observe(document.querySelector('.Root__main-view') || document.body,{childList:true,subtree:true});
-    Spicetify.Platform.History.listen(schedule);schedule();
+    Spicetify.Platform.History.listen(navigate);navigate();
 })();

@@ -59,7 +59,7 @@ def index_path(url):
 
 def save_index(state):
     path = index_path(state['url'])
-    temp = path.with_suffix('.tmp')
+    temp = path.with_name(path.name + '.' + uuid.uuid4().hex + '.tmp')
     temp.write_text(json.dumps({key:state[key] for key in ('file','title','artist','duration','source','cover')}), encoding='utf-8')
     temp.replace(path)
 
@@ -193,10 +193,20 @@ def worker(job):
             name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', state['title']).strip().rstrip('.')[:80] or 'Song'
             target = folder / (name + '.mp3')
             suffix = 2
-            while target.exists():
-                target = folder / f'{name} ({suffix}).mp3'
-                suffix += 1
-            shutil.move(str(audio), target)
+            while True:
+                try:
+                    destination = target.open('xb')
+                    break
+                except FileExistsError:
+                    target = folder / f'{name} ({suffix}).mp3'
+                    suffix += 1
+            try:
+                with destination, audio.open('rb') as source:
+                    shutil.copyfileobj(source, destination)
+            except Exception:
+                target.unlink(missing_ok=True)
+                raise
+            audio.unlink()
             state.update(status='done', folder=str(folder),file=str(target))
             save_index(state)
     except Exception as error:
@@ -285,10 +295,6 @@ def request(route, query, size):
             if path.parent == JOBS and re.fullmatch(r'[a-f0-9]{32}', path.name):
                 shutil.rmtree(path)
     if route == '/link-preview':
-        for path in JOBS.glob('*/status.json'):
-            previous = json.loads(path.read_text(encoding='utf-8'))
-            if previous['status'] in ('previewing', 'downloading') and time.time() - path.stat().st_mtime < 630:
-                raise ValueError('Another link import is running. Finish or cancel it first.')
         identifier = uuid.uuid4().hex
         job = JOBS / identifier
         job.mkdir()

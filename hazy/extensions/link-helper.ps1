@@ -243,7 +243,6 @@ function Handle-Link($ctx, $route) {
         $id = if ($body) { $body.id } else { $ctx.Request.QueryString['id'] }
         $job = if ($id -and $script:linkJobs.ContainsKey($id)) { $script:linkJobs[$id] } else { $null }
         if ($route -eq '/link-preview') {
-            if (@($script:linkJobs.Values | Where-Object { $_.Status -in @('previewing', 'downloading') }).Count) { throw 'Another link import is running. Finish or cancel it first.' }
             $url = Get-LinkUrl $body.url ([bool]$body.collection)
             $id = [Guid]::NewGuid().ToString('N')
             $dir = Join-Path $script:linkRoot "cache\import-logs\$id"

@@ -178,6 +178,16 @@
         }
         throw new Error('Downloaded, but playlist insertion could not be confirmed. Check the playlist before adding it manually.');
     }
+    let indexingQueue = Promise.resolve();
+    function addIndexedQueued(job, uri, status, cancelled = () => false) {
+        status.textContent = 'Waiting to add the song…';
+        const result = indexingQueue.then(() => {
+            if (cancelled()) throw new Error('The MP3 was saved. Playlist insertion cancelled.');
+            return addIndexed(job, uri, status, cancelled);
+        });
+        indexingQueue = result.catch(() => {});
+        return result;
+    }
     let open = false;
     function showImport(uri, name) {
         if (open) return;
@@ -220,7 +230,7 @@
                 const add=element('button',song.added?'Added':'Add','sr-local-add');add.disabled=!!song.added;add.setAttribute('aria-label',(song.added?'Already added: ':'Add ')+song.title);
                 add.onclick=async()=>{
                     if(busy)return;setBusy(true);add.disabled=true;add.textContent='Adding…';
-                    try{const result=await addIndexed(song,uri,status,()=>closed);if(closed)return;song.added=true;add.textContent='Added';status.textContent=(result==='existing'?'Already in “':'Added to “')+name+'”.';}
+                    try{const result=await addIndexedQueued(song,uri,status,()=>closed);if(closed)return;song.added=true;add.textContent='Added';status.textContent=(result==='existing'?'Already in “':'Added to “')+name+'”.';}
                     catch(error){if(!closed){status.textContent=error.message;add.textContent='Add';add.disabled=false;}}
                     finally{if(!closed)setBusy(false);}
                 };
@@ -375,7 +385,7 @@
                         if(job.status==='cancelled')break;
                         lastSavedId=job.id;
                         bulkProgress.name='Adding “'+songTitle+'”…';background?.update(bulkProgress);
-                        const result=await addIndexed(job,uri,status,stopped);
+                        const result=await addIndexedQueued(job,uri,status,stopped);
                         entry.added=true;
                         bulkProgress[result==='existing'?'existing':'added']++;
                     } catch(error) {
@@ -437,7 +447,7 @@
                     if(job.status==='cancelled')throw new Error('Import cancelled.');
                     cancel.textContent='Close';
                     background?.update('Adding to “'+name+'”…');
-                    const result=await addIndexed(job,uri,status,stopped);
+                    const result=await addIndexedQueued(job,uri,status,stopped);
                     status.textContent=(result==='existing'?'Already in “':'Added to “')+name+'”.';primary.hidden=true;another.hidden=false;
                     background?.finish('done');
                 }

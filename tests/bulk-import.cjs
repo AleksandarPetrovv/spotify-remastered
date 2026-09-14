@@ -21,7 +21,7 @@ async function scenario(failSecond, cancelAfterFirst) {
       return {};
     },
     async waitJob(id,phase){if(phase==='previewing'&&index===1&&failSecond)throw new Error('unavailable');return {id,status:phase==='previewing'?'ready':'done',title:'song'+(index+1),artist:'artist',source:'YouTube',duration:20};},
-    async addIndexed(){if(cancelAfterFirst)env.cancelled=true;return index===1?'existing':'added';}
+    async addIndexedQueued(){if(cancelAfterFirst)env.cancelled=true;return index===1?'existing':'added';}
   };
   const run = Function('env','with(env){'+code+';return runBulk;}')(env);
   await run();
@@ -38,7 +38,7 @@ async function nested(cycle) {
   const env={songMetadata,collection:{id:'root',entries:[{url:'album',title:'album'},{url:'tail',title:'tail'}]},importing:false,cancelled:false,bulkProgress:null,lastSavedId:null,job:null,status:{},primary:{},another:{},uri:'playlist',name:'test',renderBulk(){},stopped(){return false;},background:null,
     async request(route,body){return {id:body?.url||body?.id,status:'ready'};},
     async waitJob(id,phase){return id==='album'?{id,status:'ready',entries:cycle?[{url:'album'}]:[{url:'first'},{url:'second'}]}:{id,status:phase==='previewing'?'ready':'done',title:id,artist:'artist'};},
-    async addIndexed(job){added.push(job.title);return 'added';}};
+    async addIndexedQueued(job){added.push(job.title);return 'added';}};
   await Function('env','with(env){'+code+';return runBulk;}')(env)();
   assert.deepEqual(added,cycle?['tail']:['first','second','tail']);
   assert.equal(env.bulkProgress.failed.length,cycle?1:0);

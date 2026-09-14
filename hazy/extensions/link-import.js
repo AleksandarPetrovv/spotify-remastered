@@ -40,6 +40,23 @@
     `;
     document.head.appendChild(style);
     const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+    let noticeTimer;
+    function showImportNotice(message, error=false) {
+        try {
+            if (typeof Spicetify.showNotification === 'function') {
+                Spicetify.showNotification(message, error);
+                return;
+            }
+        } catch {}
+        let notice=document.getElementById('sr-import-notice');
+        if(!notice) {
+            notice=document.createElement('div');notice.id='sr-import-notice';
+            notice.style.cssText='position:fixed;bottom:100px;left:50%;transform:translateX(-50%);z-index:9999;background:#202020;color:#fff;padding:12px 20px;border-radius:8px;max-width:80vw;box-shadow:0 4px 16px #0008';
+            document.body.appendChild(notice);
+        }
+        notice.setAttribute('role',error?'alert':'status');notice.textContent=message;
+        clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>notice.remove(),5000);
+    }
     function sourceError(message) {
         if (/404|not found|does not exist|deleted|removed|unavailable video|video unavailable/i.test(message)) return 'Song not found. Check the link or try another upload.';
         if (/confirm your age|age.restrict|sign in|log.?in|private|members.only|premium|not available in your country|geo.restrict/i.test(message)) return 'This song is restricted. Try a public upload.';
@@ -289,9 +306,9 @@
                 const task = {id:importId,title:title.value.trim(),artist:artist.value.trim(),cover:job?.cover,
                     extra:job?.status==='done'?'Adding to “'+name+'”…':'For “'+name+'”',
                     cancel:async()=>{cancelled=true;if(job?.id && job.status!=='done')await request('link-cancel?id='+job.id);},
-                    openFolder:()=>job?.id && request('link-folder?id='+job.id).catch(error=>Spicetify.showNotification(error.message,true))};
-                background=window.SpotifyRemasteredDownloads?.backgroundImport(task);
-                if(!background)Spicetify.showNotification('Import continues in the background.');
+                    openFolder:()=>job?.id && request('link-folder?id='+job.id).catch(error=>showImportNotice(error.message,true))};
+                try { background=window.SpotifyRemasteredDownloads?.backgroundImport(task); } catch {}
+                if(!background)showImportNotice('Import continues in the background.');
             } else if(job?.id && job.status!=='done') request('link-cancel?id='+job.id).catch(()=>{});
             window.removeEventListener('keydown',keydown,true);overlay?.removeEventListener('click',click,true);
             overlay?.removeEventListener('pointerdown',pointerdown,true);

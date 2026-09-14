@@ -96,7 +96,8 @@ const LyricsFetcher = {
      */
     async fetchTempo(uri) {
         const cacheKey = `${uri}:tempo`;
-        let audio = await CacheManager.get(cacheKey);
+        const trackId = /^spotify:track:([A-Za-z0-9]{22})$/.exec(uri)?.[1];
+        let audio = trackId ? await CacheManager.get(cacheKey) : { tempo: 105 };
 
         if (!audio) {
             // Global rate limiter: prevent spam during rapid track skipping
@@ -114,7 +115,7 @@ const LyricsFetcher = {
                     this._lastTempoRequest = now;
                     const promise = (async () => {
                         try {
-                            const res = await Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/audio-features/${uri.split(":")[2]}`);
+                            const res = await Spicetify.CosmosAsync.get(`https://api.spotify.com/v1/audio-features/${trackId}`);
                             // Only cache if request is still valid (track hasn't changed)
                             if (this.isRequestValid(uri)) {
                                 CacheManager.set(cacheKey, res);

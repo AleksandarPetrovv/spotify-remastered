@@ -101,10 +101,15 @@
         const local = Spicetify.Platform.LocalFilesAPI;
         const playlist = Spicetify.Platform.PlaylistAPI;
         if (!local?.addFolder || !local?.getTracks || !playlist?.add) throw new Error('Downloaded, but this Spotify version does not expose local-file import. Add it from Local Files manually.');
-        if (!local.getIsEnabled()) local.setIsEnabled(true);
+        if (!await local.getIsEnabled()) await local.setIsEnabled(true);
         const sources = await local.getSources();
         const normalize = path => path.replace(/\\/g, '/').replace(/\/$/, '').toLowerCase();
-        if (!sources.folders.some(folder => normalize(folder.path) === normalize(job.folder))) await local.addFolder({path:job.folder});
+        const registered = sources.folders.find(folder => normalize(folder.path) === normalize(job.folder));
+        if (registered) {
+            if (!local.removeFolder) throw new Error('Downloaded, but Spotify cannot refresh the local songs folder. Restart Spotify and retry.');
+            await local.removeFolder({path:registered.path});
+        }
+        await local.addFolder({path:job.folder});
         status.textContent = job.reused ? 'Already downloaded. Adding to your playlist…' : 'Downloaded. Waiting for Spotify to find the song…';
         const deadline = Date.now() + 60000;
         let track;

@@ -37,6 +37,7 @@ PY
 )
 echo 'SR_STAGE:4:Restoring Spotify and previous configuration'
 "$python" "$state" spotx-restore "$root" "$spotify"
+if [ -f "$spotify/Apps/native-licenses.html" ]; then mkdir -p "$root/cache"; cp -p "$spotify/Apps/native-licenses.html" "$root/cache/uninstall-native-licenses.html"; fi
 restore_state="$state"
 if ! grep -q 'def restore_spicetify(' "$state"; then
     mkdir -p "$root/cache"
@@ -82,6 +83,7 @@ if record.exists():
 PY
 fi
 echo 'SR_STAGE:5:Finishing cleanup'
+if [ -f "$root/cache/uninstall-native-licenses.html" ]; then cp -p "$root/cache/uninstall-native-licenses.html" "$spotify/Apps/native-licenses.html"; fi
 "$python" "$state" complete "$root"
 "$python" - "$root" <<'PY'
 import os,shutil,sys

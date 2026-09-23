@@ -101,6 +101,12 @@ if [ -f "$repo/hazy/extensions/uninstall-helper.py" ]; then cp "$repo/hazy/exten
 for file in download-helper.sh download-playlist.py download-runner.py link-helper.py setup-link-tools.py repair-spicetify.py update-spicetify.py; do
     cp "$repo/hazy/extensions/$file" "$root/scripts/$file"
 done
+if [ -f "$repo/hazy/extensions/restore-mac-spotify.py" ]; then
+    cp "$repo/hazy/extensions/restore-mac-spotify.py" "$root/scripts/restore-mac-spotify.py"
+fi
+curl -fL --retry 2 https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/macDel.sh -o "$temporary/macDel.sh"
+bash -n "$temporary/macDel.sh"
+cp "$temporary/macDel.sh" "$root/scripts/macDel.sh"
 # keep the login repair current even when the bundle archive is pinned.
 cat > "$root/scripts/update-spicetify.py" <<'REMASTERED_UPDATER'
 import os

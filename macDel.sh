@@ -8,10 +8,21 @@ if [ ! -x "$python" ] || [ ! -f "$state" ]; then
     echo 'The restoration tools are missing. Repair setup before uninstalling; no user files were deleted.' >&2
     exit 1
 fi
+if ! spice=$(command -v spicetify) || ! config=$("$spice" -c) || [ ! -f "$config" ]; then
+    echo 'Spicetify configuration is unavailable. Recovery files and background helpers were retained.' >&2
+    exit 1
+fi
+cfg=$(dirname "$config")
+restore_mac="$root/scripts/restore-mac-spotify.py"
+if [ ! -f "$restore_mac" ]; then
+    mkdir -p "$root/cache"
+    restore_mac="$root/cache/uninstall-restore-mac-spotify.py"
+    curl -fL --retry 2 https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/hazy/extensions/restore-mac-spotify.py -o "$restore_mac"
+fi
+echo 'SR_STAGE:0:Preparing verified official Spotify for restoration'
+"$python" "$restore_mac" "$root" "$config" --prepare
 if [ "${1:-}" = --prepare ]; then
     echo 'SR_STAGE:0:Checking restoration tools'
-    spice=$(command -v spicetify)
-    config=$("$spice" -c)
     echo 'SR_STAGE:1:Checking saved configuration and recovery files'
     "$python" "$state" check "$root" "$(dirname "$config")"
     echo 'SR_STAGE:2:Ready to finish uninstall'
@@ -23,40 +34,16 @@ for agent in com.spotify-remastered.updater com.spotify-remastered.download-help
     rm -f "$HOME/Library/LaunchAgents/$agent.plist"
 done
 "$python" "$state" stop "$root"
-if ! spice=$(command -v spicetify) || ! config=$("$spice" -c) || [ ! -f "$config" ]; then
-    echo 'Background helpers and login entries were removed. Spicetify is unavailable; repair it to finish restoring Spotify. User files and recovery records were retained.' >&2
-    exit 1
-fi
-cfg=$(dirname "$config")
 "$python" "$state" capture "$root" "$cfg" true
 pkill -x Spotify 2>/dev/null || true
-spotify=$("$python" - "$config" <<'PY'
-import configparser, sys
-c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','spotify_path'))
-PY
-)
 echo 'SR_STAGE:4:Restoring Spotify and previous configuration'
-"$python" "$state" spotx-restore "$root" "$spotify"
-if [ -f "$spotify/Apps/native-licenses.html" ]; then mkdir -p "$root/cache"; cp -p "$spotify/Apps/native-licenses.html" "$root/cache/uninstall-native-licenses.html"; fi
-restore_state="$state"
-if ! grep -q 'def restore_spicetify(' "$state"; then
-    mkdir -p "$root/cache"
-    restore_state="$root/cache/uninstall-install-state.py"
-    curl -fL --retry 2 https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/hazy/extensions/install-state.py -o "$restore_state"
-fi
-if ! grep -q 'def restore_spicetify(' "$restore_state"; then
-    echo 'The updated recovery helper is not available yet. Recovery files were retained.' >&2
-    exit 1
-fi
-if ! "$python" "$restore_state" spicetify-restore "$root" "$cfg" "$spice"; then
-    echo 'Restoration could not finish. Recovery files were retained. Repair Spotify and rerun uninstall.' >&2
-    exit 1
-fi
+"$python" "$restore_mac" "$root" "$config"
 pkill -x Spotify 2>/dev/null || true
 "$python" "$state" restore "$root" "$cfg"
 "$python" "$root/scripts/repair-spicetify.py" --restore
 existed=$("$python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["existed"])' "$root/data/install-state.json")
 if [ "$existed" = True ]; then
+    "$spice" clear
     "$spice" backup apply -n
 else
     "$python" - "$spice" "$cfg" "$root" <<'PY'
@@ -83,7 +70,6 @@ if record.exists():
 PY
 fi
 echo 'SR_STAGE:5:Finishing cleanup'
-if [ -f "$root/cache/uninstall-native-licenses.html" ]; then cp -p "$root/cache/uninstall-native-licenses.html" "$spotify/Apps/native-licenses.html"; fi
 "$python" "$state" complete "$root"
 "$python" - "$root" <<'PY'
 import os,shutil,sys

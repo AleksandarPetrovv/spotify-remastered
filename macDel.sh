@@ -13,6 +13,18 @@ if ! spice=$(command -v spicetify) || ! config=$("$spice" -c) || [ ! -f "$config
     exit 1
 fi
 cfg=$(dirname "$config")
+spotify_present=$("$python" - "$config" <<'PY'
+import configparser, os, sys
+from pathlib import Path
+config = configparser.RawConfigParser()
+config.read(sys.argv[1])
+resources = Path(os.path.expandvars(config.get('Setting', 'spotify_path'))).expanduser()
+if resources.name != 'Resources' or resources.parent.name != 'Contents' or resources.parent.parent.name != 'Spotify.app':
+    raise RuntimeError('Unexpected Spotify path; refusing to assume the app is absent.')
+print('true' if resources.parent.parent.exists() else 'false')
+PY
+)
+if [ "$spotify_present" = true ]; then
 restore_mac="$root/scripts/restore-mac-spotify.py"
 if [ ! -f "$restore_mac" ]; then
     mkdir -p "$root/cache"
@@ -21,10 +33,13 @@ if [ ! -f "$restore_mac" ]; then
 fi
 echo 'SR_STAGE:0:Preparing verified official Spotify for restoration'
 "$python" "$restore_mac" "$root" "$config" --prepare
+else
+    echo 'Spotify is not installed; skipping app restoration and removing managed files only.'
+fi
 if [ "${1:-}" = --prepare ]; then
     echo 'SR_STAGE:0:Checking restoration tools'
     echo 'SR_STAGE:1:Checking saved configuration and recovery files'
-    "$python" "$state" check "$root" "$(dirname "$config")"
+    if [ "$spotify_present" = true ]; then "$python" "$state" check "$root" "$cfg"; fi
     echo 'SR_STAGE:2:Ready to finish uninstall'
     exit 0
 fi
@@ -37,14 +52,16 @@ done
 "$python" "$state" capture "$root" "$cfg" true
 pkill -x Spotify 2>/dev/null || true
 echo 'SR_STAGE:4:Restoring Spotify and previous configuration'
-"$python" "$restore_mac" "$root" "$config"
+if [ "$spotify_present" = true ]; then "$python" "$restore_mac" "$root" "$config"; fi
 pkill -x Spotify 2>/dev/null || true
 "$python" "$state" restore "$root" "$cfg"
 "$python" "$root/scripts/repair-spicetify.py" --restore
 existed=$("$python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["existed"])' "$root/data/install-state.json")
 if [ "$existed" = True ]; then
-    "$spice" clear
-    "$spice" backup apply -n
+    if [ "$spotify_present" = true ]; then
+        "$spice" clear
+        "$spice" backup apply -n
+    fi
 else
     "$python" - "$spice" "$cfg" "$root" <<'PY'
 import collections, json, shutil, sys

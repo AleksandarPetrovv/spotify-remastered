@@ -15,14 +15,19 @@ function Stop-SpotifyForRestore {
         }
     }
 }
+$spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
+$cfg = Get-RemasteredConfig $spice
+$python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
+$stateTool = Join-Path $root 'scripts\install-state.py'
+$spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
+if (-not $spotifyPath) { throw 'Spotify path is missing; refusing to assume the app is absent.' }
+$spotifyPath = [Environment]::ExpandEnvironmentVariables($spotifyPath)
+$spotifyPresent = Test-Path -LiteralPath (Join-Path $spotifyPath 'Spotify.exe') -PathType Leaf
+if (-not $spotifyPresent) { Write-Host 'Spotify is not installed; skipping app restoration and removing managed files only.' }
 if ($PrepareOnly) {
     Write-Output 'SR_STAGE:0:Checking restoration tools'
-    $spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
-    $cfg = Get-RemasteredConfig $spice
-    $python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
-    $stateTool = Join-Path $root 'scripts\install-state.py'
     Write-Output 'SR_STAGE:1:Checking saved configuration and recovery files'
-    Invoke-Checked $python $stateTool check $root $cfg
+    if ($spotifyPresent) { Invoke-Checked $python $stateTool check $root $cfg }
     Write-Output 'SR_STAGE:2:Ready to finish uninstall'
     exit 0
 }
@@ -30,20 +35,14 @@ Write-Output 'SR_STAGE:3:Stopping background helpers and closing Spotify'
 Stop-RemasteredHelpers $root
 $startup = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\Startup'
 foreach ($file in @('Spotify Remastered Updater.vbs','Spotify Remastered Updater.lnk','Spotify Remastered Download Helper.vbs')) { Remove-ManagedPath $startup $file }
-try {
-    $spice = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
-    $cfg = Get-RemasteredConfig $spice
-} catch { throw 'Background helpers and startup entries were removed. Spicetify is unavailable; repair it to finish restoring Spotify. User files and recovery records were retained.' }
-$python = Join-Path $root 'dependencies\downloader\Scripts\python.exe'
-$stateTool = Join-Path $root 'scripts\install-state.py'
 if (-not (Test-Path -LiteralPath $python) -or -not (Test-Path -LiteralPath $stateTool)) {
     throw 'The restoration tools are missing. Repair setup before uninstalling; user data has been kept.'
 }
 Invoke-Checked $python $stateTool capture $root $cfg 'true'
 $state = Get-Content -LiteralPath (Join-Path $root 'data\install-state.json') -Raw | ConvertFrom-Json
-$spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
 Stop-SpotifyForRestore
 Write-Output 'SR_STAGE:4:Restoring Spotify and previous configuration'
+if ($spotifyPresent) {
 try {
     $restoreSource = [IO.File]::ReadAllText($stateTool)
     if ($restoreSource.Contains('def restore_spicetify(')) {
@@ -60,12 +59,13 @@ try {
     Write-Host $_.Exception.Message
     exit 1
 }
+}
 Stop-SpotifyForRestore
 Invoke-Checked $python $stateTool restore $root $cfg
 & (Join-Path $root 'scripts\repair-spicetify.ps1') -Restore
-Invoke-Checked $python $stateTool spotx-restore $root $spotifyPath
+if ($spotifyPresent) { Invoke-Checked $python $stateTool spotx-restore $root $spotifyPath }
 if ($state.existed) {
-    Invoke-Checked $spice backup apply -n
+    if ($spotifyPresent) { Invoke-Checked $spice backup apply -n }
 } else {
     $binaryDirectory = Split-Path $spice
     $allowed = @((Join-Path $env:LOCALAPPDATA 'spicetify'), (Join-Path $env:LOCALAPPDATA 'Programs\spicetify'))

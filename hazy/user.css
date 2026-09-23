@@ -3219,8 +3219,9 @@ CUSTOM LYRICS STYLES
 .spicetify-popup .spicetify-popup-content { min-height: 0; padding: 20px 24px; overflow: auto; }
 
 .spicetify-popup-container:has(#hazy-settings) { width:620px!important;max-width:calc(100vw - 48px)!important; }
-#hazy-settings { font-size:14px;line-height:1.4;color:var(--spice-text); }
-#hazy-settings .hz-settings-body { max-height:calc(100vh - 240px);overflow-y:auto;scrollbar-width:none; }
+.spicetify-popup-content:has(#hazy-settings) { overflow:hidden; }
+#hazy-settings { display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 180px);min-height:0;font-size:14px;line-height:1.4;color:var(--spice-text); }
+#hazy-settings .hz-settings-body { min-height:0;overflow-y:auto;scrollbar-width:thin; }
 #hazy-settings .hz-settings-body::-webkit-scrollbar { display:none;width:0;height:0; }
 #hazy-settings .hz-section { padding:20px 0;border-bottom:1px solid rgba(255,255,255,.08); }
 #hazy-settings .hz-section:first-child { padding-top:0; }
@@ -3248,7 +3249,7 @@ CUSTOM LYRICS STYLES
 #hazy-settings .hz-switch span { display:block;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .16s ease; }
 #hazy-settings .hz-switch[aria-checked=true] { background:var(--spice-button); }
 #hazy-settings .hz-switch[aria-checked=true] span { transform:translateX(16px); }
-#hazy-settings .hz-footer { border-top:1px solid rgba(255,255,255,.08);padding-top:16px;display:flex;align-items:center;justify-content:space-between;gap:16px; }
+#hazy-settings .hz-footer { flex-shrink:0;border-top:1px solid rgba(255,255,255,.08);padding-top:16px;display:flex;align-items:center;justify-content:space-between;gap:16px; }
 #hazy-settings .hz-footer p { font-size:12px;color:var(--spice-subtext);margin:0; }
 #hazy-settings .hz-actions { display:flex;gap:8px;flex-shrink:0; }
 #hazy-settings .hz-actions button { height:36px;border:1px solid rgba(255,255,255,.2);border-radius:9999px;padding:0 16px;background:transparent;color:var(--spice-text);font-weight:600; }
@@ -3279,18 +3280,18 @@ CUSTOM LYRICS STYLES
 }
 
 #hazy-settings [hidden] { display:none!important; }
-#hazy-settings .hz-tabs { display:flex;gap:8px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px;margin-bottom:20px; }
+#hazy-settings .hz-tabs { display:flex;flex-shrink:0;gap:8px;border-bottom:1px solid rgba(255,255,255,.08);padding-bottom:12px; }
 #hazy-settings .hz-tabs button { padding:9px 14px;border:1px solid rgba(255,255,255,.14);border-radius:8px;background:transparent;color:var(--spice-text); }
 #hazy-settings .hz-tabs button:hover { background:rgba(255,255,255,.08); }
 #hazy-settings .hz-tabs button[aria-selected=true] { background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.25); }
-#hazy-settings .hz-settings-body { max-height:calc(100vh - 310px); }
-#hazy-settings .hz-installation-actions { margin-top:16px;justify-content:flex-end;flex-wrap:wrap; }
+#hazy-settings .hz-removal-footer { justify-content:flex-end; }
+#hazy-settings .hz-installation-actions { justify-content:flex-end;flex-wrap:wrap; }
 #hazy-settings .hz-copy-status { margin-top:12px;margin-bottom:0; }
 
 #hazy-settings .hz-actions .hz-danger { color:#ffb4b4;border-color:rgba(255,180,180,.35); }
 #hazy-settings .hz-actions .hz-danger:hover { background:rgba(255,180,180,.1); }
-#hazy-settings .hz-uninstall-stages { margin:20px 0;padding-left:24px;color:var(--spice-subtext); }
-#hazy-settings .hz-uninstall-stages li { padding:6px 0; }
+#hazy-settings .hz-uninstall-stages { margin:12px 0;padding-left:24px;color:var(--spice-subtext); }
+#hazy-settings .hz-uninstall-stages li { padding:4px 0; }
 #hazy-settings .hz-uninstall-stages li[data-state=current] { color:var(--spice-text);font-weight:700; }
 #hazy-settings .hz-uninstall-stages li[data-state=complete] { color:var(--spice-button); }
 #hazy-settings .hz-copy-status { overflow-wrap:anywhere; }

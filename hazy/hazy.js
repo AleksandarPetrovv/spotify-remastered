@@ -754,9 +754,12 @@
       } finally { remove.disabled = running; }
     };
     removalActions.append(openSongs, cancelRemoval, remove);
-    uninstall.append(note, songWarning, steps, removalActions, removalStatus);
+    uninstall.append(note, songWarning, steps, removalStatus);
+    const removalFooter = make("div", null, "hz-footer hz-removal-footer");
+    removalFooter.append(removalActions);
     installation.append(uninstall);
     content.insertBefore(installation, footer);
+    content.append(removalFooter);
     const panels = [body, installation];
     function selectTab(index, focus = false) {
       [...tabs.children].forEach((tab, i) => {
@@ -765,6 +768,7 @@
         panels[i].hidden = i !== index;
       });
       footer.hidden = index !== 0;
+      removalFooter.hidden = index !== 1;
       if (focus) tabs.children[index].focus();
     }
     ["Theme", "Installation"].forEach((label, index) => {

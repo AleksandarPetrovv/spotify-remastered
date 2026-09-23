@@ -70,7 +70,7 @@ if ($SourceDirectory) {
     New-Item -ItemType Directory -Path $repo -Force | Out-Null
     foreach ($name in @('hazy', 'lyrics-plus', 'winDel.ps1', 'macDel.sh')) { Copy-Item -LiteralPath (Join-Path $sourceRoot $name) -Destination $repo -Recurse -ErrorAction Stop }
 } else {
-Invoke-WebRequest -Uri 'https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v1.9.zip' -OutFile $tempZip
+Invoke-WebRequest -Uri 'https://github.com/AleksandarPetrovv/spotify-remastered/archive/refs/tags/v2.0.zip' -OutFile $tempZip
 
 if (-not (Test-Path $tempZip)) { throw "Download failed." }
 if (Test-Path $tempExtract) { Remove-Item -Recurse -Force $tempExtract -ErrorAction SilentlyContinue }

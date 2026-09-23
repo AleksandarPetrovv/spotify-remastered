@@ -70,6 +70,7 @@ if ! command -v spicetify >/dev/null 2>&1; then
 fi
 spice=$(command -v spicetify)
 "$spice" >/dev/null
+"$spice" upgrade
 config=$("$spice" -c)
 cfg=$(dirname "$config")
 "$python" -c 'import runpy,sys; runpy.run_path(sys.argv[1])["managed_ffmpeg"]()' "$repo/hazy/extensions/download-playlist.py"
@@ -180,7 +181,7 @@ import configparser, sys
 c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','spotify_path'))
 PY
 )
-if [ -f "$cfg/Backup/xpui.spa" ]; then "$spice" restore; fi
+if grep -Eq '^version[[:space:]]*=[[:space:]]*[^[:space:]]' "$config"; then "$spice" restore backup; fi
 "$python" "$root/scripts/install-state.py" spotx-before "$root" "$spotify"
 premium=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you have Spotify Premium?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")')
 flags=(-h)

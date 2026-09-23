@@ -105,6 +105,7 @@ if (-not (Get-Command spicetify -ErrorAction SilentlyContinue)) {
 
 $script:spiceExe = (Get-Command spicetify -CommandType Application -ErrorAction Stop).Source
 Invoke-Spice | Out-Null
+Invoke-Spice upgrade
 $cfg = Get-RemasteredConfig $script:spiceExe
 foreach ($folder in @('dependencies','scripts','data','cache')) { New-Item -ItemType Directory -Path (Join-Path $customDir $folder) -Force | Out-Null }
 foreach ($file in @('setup-downloader.ps1','setup-downloader.py','downloader-requirements.txt','install-state.py','installer-common.ps1')) {
@@ -183,7 +184,8 @@ $spotxFlags = @('-podcasts_off', '-block_update_off', '-confirm_spoti_recomended
 if ($premiumResponse -eq 6) { $spotxFlags += '-premium' }
 $spotifyPath = [regex]::Match([IO.File]::ReadAllText((Join-Path $cfg 'config-xpui.ini')), '(?m)^spotify_path\s*=\s*([^\r\n]+)').Groups[1].Value.Trim()
 if (-not (Test-Path -LiteralPath $spotifyPath -PathType Container)) { throw 'Could not locate Spotify for patch backup.' }
-if (Test-Path -LiteralPath (Join-Path $cfg 'Backup\xpui.spa')) { Invoke-Spice restore -n }
+$spiceConfig = Join-Path $cfg 'config-xpui.ini'
+if (Select-String -LiteralPath $spiceConfig -Pattern '^version\s*=\s*\S+' -Quiet) { Invoke-Spice restore backup -n }
 if ((Test-Path -LiteralPath (Join-Path $customDir 'data\spotx-state.json')) -and (Select-String -LiteralPath (Join-Path $customDir 'scripts\install-state.py') -SimpleMatch 'def check_restore' -Quiet)) {
     Get-Process Spotify -ErrorAction SilentlyContinue | Stop-Process -Force
     Invoke-Checked $managedPython (Join-Path $customDir 'scripts\install-state.py') spotx-restore $customDir $spotifyPath

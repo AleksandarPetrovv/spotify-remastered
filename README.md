@@ -48,11 +48,11 @@ irm https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/w
 bash <(curl -fsSL https://raw.githubusercontent.com/AleksandarPetrovv/spotify-remastered/cli/macDl.sh)
 ```
 
-having problems?[^troubleshooting]
-
 ## Credits
 
 - theme based on [hazy](https://github.com/Astromations/Hazy) by astromations
 - lyrics based on [custom-of-lyrics-plus](https://github.com/Tuna285/custom-of-lyrics-plus) by tuna285
 
-[^troubleshooting]: run the uninstall command for your operating system by replacing `winDl.ps1` with `winDel.ps1`, or `macDl.sh` with `macDel.sh`, in the install command above. this removes spotify remastered; you can then run the original install command to reinstall.
+---
+
+**having problems?** run the uninstall command for your operating system by replacing `winDl.ps1` with `winDel.ps1`, or `macDl.sh` with `macDel.sh`, in the install command above. this removes spotify remastered; you can then run the original install command to reinstall.

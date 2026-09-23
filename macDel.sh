@@ -36,6 +36,7 @@ c=configparser.RawConfigParser(); c.read(sys.argv[1]); print(c.get('Setting','sp
 PY
 )
 echo 'SR_STAGE:4:Restoring Spotify and previous configuration'
+"$python" "$state" spotx-restore "$root" "$spotify"
 restore_state="$state"
 if ! grep -q 'def restore_spicetify(' "$state"; then
     mkdir -p "$root/cache"
@@ -53,7 +54,6 @@ fi
 pkill -x Spotify 2>/dev/null || true
 "$python" "$state" restore "$root" "$cfg"
 "$python" "$root/scripts/repair-spicetify.py" --restore
-"$python" "$state" spotx-restore "$root" "$spotify"
 existed=$("$python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["existed"])' "$root/data/install-state.json")
 if [ "$existed" = True ]; then
     "$spice" backup apply -n
@@ -88,7 +88,8 @@ import os,shutil,sys
 from pathlib import Path
 root=Path(sys.argv[1]).absolute()
 if root.is_symlink() or root != Path.home()/'.local/share/spotify-remastered': raise RuntimeError('Invalid support directory')
-owned=['dependencies','cache','data','backups','scripts','about-this-folder.txt','spotdl','ffmpeg','yt-dlp','deno']
+owned=['dependencies','cache','data','backups','scripts','about-this-folder.txt','spotdl','ffmpeg','yt-dlp','deno',
+       'SpotDLHelper.app','download-helper.sh','spotify-remastered-updater.sh','spicetify-status.txt']
 if os.environ.get('SR_DELETE_LOCAL_SONGS') == '1': owned.append('local songs')
 owned += [p.name for p in root.iterdir() if p.name.startswith(('lyrics-plus-backup-','theme-backup-','settings-uninstall-backup-'))]
 for name in owned:

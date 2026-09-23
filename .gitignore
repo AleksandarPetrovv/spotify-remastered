@@ -2,6 +2,7 @@
 AGENTS.md
 .agents/
 LYRICS-PLUS-PORTING.md
+/tests/
 
 # Crash artifacts from MSYS/Cygwin/Git-Bash
 *.stackdump

@@ -104,6 +104,8 @@ done
 # keep the login repair current even when the bundle archive is pinned.
 cat > "$root/scripts/update-spicetify.py" <<'REMASTERED_UPDATER'
 import os
+import configparser
+import re
 import fcntl
 import logging
 from logging.handlers import RotatingFileHandler
@@ -112,6 +114,39 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+
+
+def repair_custom_routes(spice):
+    config = configparser.RawConfigParser()
+    config.read(subprocess.check_output([spice, '-c'], text=True).strip())
+    apps = Path(config.get('Setting', 'spotify_path')) / 'Apps/xpui'
+    modules, snapshot = apps / 'xpui-modules.js', apps / 'xpui-snapshot.js'
+    if not modules.is_file() or not snapshot.is_file():
+        return
+    source, original = modules.read_text(), snapshot.read_text()
+    if not original.startswith('var __webpack_modules__='):
+        return
+    updated = original
+    patterns = [
+        r',spicetifyApp\d+=.*?(?=,[A-Za-z_$][\w$]*=)',
+        r'\(0,[\w$]+\.jsx\)\([\w$]+\.[\w$]+,\{path:"/[^" ]+/\*",pathV6:"/[^" ]+/\*",element:\(0,[\w$]+\.jsx\)\(spicetifyApp\d+,\{\}\)\}\),',
+    ]
+    for pattern in patterns:
+        for match in reversed(list(re.finditer(pattern, source))):
+            insertion = match.group()
+            if insertion in updated:
+                continue
+            anchor = source[match.end():match.end() + 90]
+            if len(anchor) != 90 or updated.count(anchor) != 1:
+                raise RuntimeError('Could not safely repair custom app routes in the Spotify snapshot.')
+            updated = updated.replace(anchor, insertion + anchor, 1)
+    if updated != original:
+        snapshot.write_text(updated)
+
+
+if len(sys.argv) > 2 and sys.argv[2] == '--repair-routes':
+    repair_custom_routes(sys.argv[1])
+    sys.exit(0)
 
 
 root = Path(__file__).resolve().parent.parent
@@ -161,6 +196,7 @@ try:
                 subprocess.run(['pkill', '-x', 'Spotify'], check=False)
                 run([sys.executable, str(root / 'scripts/repair-spicetify.py')])
                 run([spice, 'backup', 'apply', '-n'])
+                repair_custom_routes(spice)
                 applied = True
             except (OSError, RuntimeError) as error:
                 applied = False
@@ -195,6 +231,7 @@ for key in inject_css replace_colors overwrite_assets inject_theme_js; do "$spic
 for extension in download.js link-import.js lyrics-plus-button.js; do "$spice" config extensions "$extension"; done
 "$python" "$root/scripts/repair-spicetify.py"
 "$spice" backup apply -n
+"$python" "$root/scripts/update-spicetify.py" "$spice" --repair-routes
 launch=$(osascript -e 'tell application "System Events" to button returned of (display dialog "Do you want Spotify to launch every time you log in?" buttons {"Yes", "No"} default button "Yes" with title "Spotify Remastered Setup")')
 "$python" - "$root" "$spice" "$launch" "$PATH" <<'PY'
 import plistlib, sys

@@ -7,8 +7,13 @@
         .sr-link-button:hover {color:var(--spice-text);background:transparent;transform:scale(1.1)}
         .sr-link-button:focus-visible {outline:2px solid var(--spice-text);outline-offset:3px}
         .sr-link-button svg {overflow:visible;stroke:none}
-        .spicetify-popup-container:has(#sr-link-import) {width:520px!important;max-width:calc(100vw - 48px)!important;max-height:calc(100vh - 48px)!important;overflow-y:auto}
-        #sr-link-import {display:flex;flex-direction:column;gap:20px;color:var(--spice-text);font-size:14px}
+        .spicetify-popup-container:has(#sr-link-import) {width:520px!important;max-width:calc(100vw - 48px)!important;max-height:calc(100vh - 48px)!important;overflow:hidden}
+        .spicetify-popup-content:has(#sr-link-import) {overflow:hidden}
+        #sr-link-import {display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 180px);min-height:0;color:var(--spice-text);font-size:14px}
+        #sr-link-import .sr-link-body {display:flex;flex-direction:column;gap:16px;min-height:0;overflow-y:auto;padding:4px;margin:-4px;scrollbar-width:thin}
+        #sr-link-import .sr-link-body > * {flex-shrink:0}
+        #sr-link-import > .sr-link-actions {flex-shrink:0}
+        #sr-link-import [hidden], #sr-link-import .sr-link-preview:empty, #sr-link-import .sr-link-status:empty {display:none!important}
         #sr-link-import p {margin:0;color:var(--spice-subtext);line-height:1.5}
         .sr-bulk-queue {max-height:min(360px,calc(100vh - 420px))!important;min-height:120px;scrollbar-color:var(--spice-subtext) transparent;scrollbar-width:thin}
         .sr-bulk-queue::-webkit-scrollbar-button {display:none;width:0;height:0}
@@ -470,6 +475,9 @@
                 }
             } finally {importing=false;if(!closed){setBusy(false);cancel.disabled=false;}}
         };
+        const body=element('div',null,'sr-link-body');
+        body.append(...[...root.children].filter(child=>child!==actions));
+        root.prepend(body);
         Spicetify.PopupModal.display({title:'Add from link',content:root,isLarge:false});
         const overlay=root.closest('.GenericModal__overlay');
         const reduced=matchMedia('(prefers-reduced-motion:reduce)').matches;

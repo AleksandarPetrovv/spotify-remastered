@@ -21,7 +21,8 @@ config.read(sys.argv[1])
 resources = Path(os.path.expandvars(config.get('Setting', 'spotify_path'))).expanduser()
 if resources.name != 'Resources' or resources.parent.name != 'Contents' or resources.parent.parent.name != 'Spotify.app':
     raise RuntimeError('Unexpected Spotify path; refusing to assume the app is absent.')
-print('true' if resources.parent.parent.exists() else 'false')
+contents = resources.parent
+print('true' if (contents / 'Info.plist').is_file() and (contents / 'MacOS/Spotify').is_file() else 'false')
 PY
 )
 if [ "$spotify_present" = true ]; then
